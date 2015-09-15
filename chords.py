@@ -111,13 +111,22 @@ def main():
         feat_test_files, target_test_files, memory_mapped=True
     )
 
-    # TODO: data preprocessing
+    preproc = dmgr.preprocessing.DataWhitener()
+    preproc.train(train_set, batch_size=4096)
+
+    train_set = dmgr.datasources.PreProcessedDataSource(
+        train_set, preproc
+    )
+
+    test_set = dmgr.datasources.PreProcessedDataSource(
+        test_set, preproc
+    )
 
     print(Colors.blue('Train Set:'))
-    print('\t', dmgr.datasources.to_string(train_set))
+    print('\t', train_set)
 
     print(Colors.blue('Validation Set:'))
-    print('\t', dmgr.datasources.to_string(test_set))
+    print('\t', test_set)
     print('')
 
     # build network
