@@ -64,7 +64,7 @@ def build_net(feature_shape, batch_size, out_size):
     return nn.NeuralNetwork(network, train, test, process)
 
 
-BATCH_SIZE = 512
+BATCH_SIZE = 1024
 LEARNING_RATE = 0.001
 MOMENTUM = 0.9
 
@@ -139,7 +139,7 @@ def main():
     )
 
     print(Colors.blue('Neural Network:'))
-    print(nn.to_string(network.network))
+    print(network)
     print('')
 
     print(Colors.red('Starting training...\n'))
