@@ -1,9 +1,15 @@
+import os
 import madmom as mm
 import numpy as np
 import string
+import dmgr
 
 
 FPS = 50
+DATA_DIR = 'data'
+CACHE_DIR = 'feature_cache'
+SRC_EXT = '.flac'
+GT_EXT = '.chords'
 
 
 def compute_targets(target_file, num_frames, fps):
@@ -87,3 +93,58 @@ def compute_features(audio_file):
         audio_file, fps=FPS
     ).astype(np.float32)
 
+
+class Beatles:
+
+    def __init__(self, data_dir=DATA_DIR, feature_cache_dir=CACHE_DIR):
+        data_dir = os.path.join(data_dir, 'beatles')
+        feature_cache_dir = os.path.join(feature_cache_dir, 'beatles')
+
+        src_files = dmgr.files.expand(data_dir, '*' + SRC_EXT)
+        gt_files = dmgr.files.expand(data_dir, '*' + GT_EXT)
+        gt_files = dmgr.files.match_files(src_files, gt_files,
+                                          SRC_EXT, GT_EXT)
+
+        feat_files, target_files = dmgr.files.prepare(
+            src_files, gt_files, feature_cache_dir,
+            compute_feat=compute_features,
+            compute_targets=compute_targets,
+            fps=FPS
+        )
+
+        self.feature_files = feat_files
+        self.target_files = target_files
+
+        split_dir = os.path.join(data_dir, 'splits')
+
+        self.split_defs = [
+            os.path.join(split_dir,
+                         '8-fold_cv_album_distributed_{}.fold'.format(f))
+            for f in range(8)
+        ]
+
+    def get_fold_split(self, val_fold=0, test_fold=1):
+        train_feat, val_feat, test_feat = \
+            dmgr.files.predefined_train_val_test_split(
+                self.feature_files,
+                self.split_defs[val_fold],
+                self.split_defs[test_fold],
+                match_suffix=dmgr.files.FEAT_EXT
+            )
+
+        train_targ = dmgr.files.match_files(train_feat, self.target_files,
+                                            dmgr.files.FEAT_EXT,
+                                            dmgr.files.TARGET_EXT)
+        val_targ = dmgr.files.match_files(val_feat, self.target_files,
+                                          dmgr.files.FEAT_EXT,
+                                          dmgr.files.TARGET_EXT)
+        test_targ = dmgr.files.match_files(test_feat, self.target_files,
+                                           dmgr.files.FEAT_EXT,
+                                           dmgr.files.TARGET_EXT)
+
+        return {'train': {'feat': train_feat,
+                          'targ': train_targ},
+                'val': {'feat': val_feat,
+                        'targ': val_targ},
+                'test': {'feat': test_feat,
+                         'targ': test_targ}}

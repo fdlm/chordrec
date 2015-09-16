@@ -1,6 +1,7 @@
 from __future__ import print_function
 import theano
 import theano.tensor as tt
+import sklearn.metrics
 import lasagne as lnn
 
 import nn
@@ -17,12 +18,12 @@ def stack_layers(feature_var, feature_shape, batch_size, out_size):
 
     nl = lnn.nonlinearities.rectify
 
-    net = lnn.layers.DropoutLayer(net, p=0.3)
     net = lnn.layers.DenseLayer(net, num_units=512, nonlinearity=nl)
-    net = lnn.layers.DropoutLayer(net, p=0.3)
-    net = lnn.layers.DenseLayer(net, num_units=512, nonlinearity=nl)
-    net = lnn.layers.DropoutLayer(net, p=0.3)
-    net = lnn.layers.DenseLayer(net, num_units=512, nonlinearity=nl)
+    net = lnn.layers.DropoutLayer(net, p=0.5)
+    net = lnn.layers.DenseLayer(net, num_units=256, nonlinearity=nl)
+    net = lnn.layers.DropoutLayer(net, p=0.5)
+    net = lnn.layers.DenseLayer(net, num_units=256, nonlinearity=nl)
+    net = lnn.layers.DropoutLayer(net, p=0.5)
 
     # output layer
     net = lnn.layers.DenseLayer(net, name='output', num_units=out_size,
@@ -37,7 +38,7 @@ def compute_loss(prediction, target):
 
 def build_net(feature_shape, batch_size, out_size):
     # create the network
-    feature_var = tt.matrix('feature_input', dtype='float32')
+    feature_var = tt.tensor3('feature_input', dtype='float32')
     target_var = tt.matrix('target_output', dtype='int32')
     network = stack_layers(feature_var, feature_shape, batch_size, out_size)
 
@@ -46,7 +47,13 @@ def build_net(feature_shape, batch_size, out_size):
     loss = compute_loss(prediction, target_var)
     params = lnn.layers.get_all_params(network, trainable=True)
 
-    updates = lnn.updates.adadelta(loss, params)
+    updates = lnn.updates.adam(loss, params, learning_rate=0.00001)
+
+    # max norm constraint on weights
+    all_non_bias_params = lnn.layers.get_all_params(network, regularizable=True)
+    for param, update in updates.iteritems():
+        if param in all_non_bias_params:
+            updates[param] = lnn.updates.norm_constraint(update, max_norm=4.)
 
     train = theano.function([feature_var, target_var], loss,
                             updates=updates)
@@ -67,64 +74,28 @@ BATCH_SIZE = 1024
 
 
 def main():
-    # load data
-    data_dir = 'data/beatles'
-    src_ext = '.flac'
-    gt_ext = '.chords'
-    dst_dir = 'feature_cache/beatles'
-
-    val_def = data_dir + '/splits/8-fold_cv_album_distributed_0.fold'
-    test_def = data_dir + '/splits/8-fold_cv_album_distributed_1.fold'
-    file_filter = '*'
 
     print(Colors.red('Loading data...\n'))
 
-    src_files = dmgr.files.expand(data_dir, file_filter + src_ext)
-    gt_files = dmgr.files.expand(data_dir, file_filter + gt_ext)
-
-    src_train_files, src_val_files, src_test_files = \
-        dmgr.files.predefined_train_val_test_split(
-            src_files, val_def, test_def
-        )
-
-    gt_train_files = dmgr.files.match_files(src_train_files, gt_files,
-                                            src_ext, gt_ext)
-    gt_val_files = dmgr.files.match_files(src_val_files, gt_files,
-                                          src_ext, gt_ext)
-    gt_test_files = dmgr.files.match_files(src_test_files, gt_files,
-                                           src_ext, gt_ext)
-
-    feat_train_files, target_train_files = dmgr.files.prepare(
-        src_train_files, gt_train_files, dst_dir,
-        compute_feat=data.compute_features,
-        compute_targets=data.compute_targets,
-        fps=data.FPS
-    )
-
-    feat_val_files, target_val_files = dmgr.files.prepare(
-        src_val_files, gt_val_files, dst_dir,
-        compute_feat=data.compute_features,
-        compute_targets=data.compute_targets,
-        fps=data.FPS
-    )
-
-    feat_test_files, target_test_files = dmgr.files.prepare(
-        src_test_files, gt_test_files, dst_dir,
-        compute_feat=data.compute_features,
-        compute_targets=data.compute_targets,
-        fps=data.FPS
-    )
+    beatles = data.Beatles()
+    files = beatles.get_fold_split()
 
     train_set = dmgr.datasources.AggregatedDataSource.from_files(
-        feat_train_files, target_train_files, memory_mapped=True
+        files['train']['feat'], files['train']['targ'], memory_mapped=True,
+        data_source_type=dmgr.datasources.ContextDataSource,
+        context_size=3
     )
 
     val_set = dmgr.datasources.AggregatedDataSource.from_files(
-        feat_val_files, target_val_files, memory_mapped=True
+        files['val']['feat'], files['val']['targ'], memory_mapped=True,
+        data_source_type=dmgr.datasources.ContextDataSource,
+        context_size=3
     )
 
     test_set = dmgr.datasources.AggregatedDataSource.from_files(
-        feat_test_files, target_test_files, memory_mapped=True
+        files['test']['feat'], files['test']['targ'], memory_mapped=True,
+        data_source_type=dmgr.datasources.ContextDataSource,
+        context_size=3
     )
 
     preproc = dmgr.preprocessing.DataWhitener()
@@ -146,30 +117,43 @@ def main():
     print('\t', train_set)
 
     print(Colors.blue('Validation Set:'))
+    print('\t', val_set)
+
+    print(Colors.blue('Test Set:'))
     print('\t', test_set)
     print('')
 
     # build network
     print(Colors.red('Building network...\n'))
 
-    train_network = build_net(
+    neural_net = build_net(
         feature_shape=train_set.feature_shape,
-        batch_size=BATCH_SIZE,
+        batch_size=None,
         out_size=train_set.target_shape[0]
     )
 
     print(Colors.blue('Neural Network:'))
-    print(train_network)
+    print(neural_net)
     print('')
 
     print(Colors.red('Starting training...\n'))
 
     best_params = nn.train(
-        train_network, train_set, n_epochs=100, batch_size=BATCH_SIZE,
+        neural_net, train_set, n_epochs=100, batch_size=BATCH_SIZE,
         validation_set=val_set, early_stop=10
     )
 
     print(Colors.red('Starting testing...\n'))
+
+    predictions = nn.predict(
+        neural_net, test_set, BATCH_SIZE
+    )
+
+    pred_class = predictions.argmax(axis=1)
+    ids = range(test_set.n_data)
+    correct_class = test_set[ids][1].argmax(axis=1)
+
+    print(sklearn.metrics.classification_report(correct_class, pred_class))
 
 
 if __name__ == '__main__':
