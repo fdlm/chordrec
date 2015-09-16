@@ -91,7 +91,8 @@ def compute_features(audio_file):
     """
     specs = [
         mm.audio.spectrogram.LogarithmicFilteredSpectrogram(
-            audio_file, fps=FPS, num_bands=12, frame_size=ffts)
+            audio_file, fps=FPS, num_bands=12, frame_size=ffts,
+            unique_filters=False)
         for ffts in [1024, 2048, 4096]
     ]
 
