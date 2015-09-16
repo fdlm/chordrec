@@ -17,11 +17,9 @@ def stack_layers(feature_var, feature_shape, batch_size, out_size):
 
     nl = lnn.nonlinearities.rectify
 
-    net = lnn.layers.DenseLayer(net, num_units=256, nonlinearity=nl)
+    net = lnn.layers.DenseLayer(net, num_units=128, nonlinearity=nl)
     net = lnn.layers.DropoutLayer(net, p=0.5)
-    net = lnn.layers.DenseLayer(net, num_units=256, nonlinearity=nl)
-    net = lnn.layers.DropoutLayer(net, p=0.5)
-    net = lnn.layers.DenseLayer(net, num_units=256, nonlinearity=nl)
+    net = lnn.layers.DenseLayer(net, num_units=128, nonlinearity=nl)
     net = lnn.layers.DropoutLayer(net, p=0.5)
 
     # output layer
