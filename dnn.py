@@ -41,17 +41,13 @@ def build_net(feature_shape, batch_size, out_size):
 
     # create train function
     prediction = lnn.layers.get_output(network)
-    loss = compute_loss(prediction, target_var)
+
+    l2_penalty = lnn.regularization.regularize_network_params(
+        network, lnn.regularization.l2)
+    loss = compute_loss(prediction, target_var) + l2_penalty * 1e-4
+
     params = lnn.layers.get_all_params(network, trainable=True)
-
     updates = lnn.updates.adam(loss, params, learning_rate=0.0001)
-
-    # max norm constraint on weights
-    all_non_bias_params = lnn.layers.get_all_params(network, trainable=True,
-                                                    regularizable=True)
-    for param, update in updates.iteritems():
-        if param in all_non_bias_params:
-            updates[param] = lnn.updates.norm_constraint(update, max_norm=1.)
 
     train = theano.function([feature_var, target_var], loss,
                             updates=updates)
