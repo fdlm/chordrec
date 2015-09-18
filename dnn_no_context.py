@@ -35,7 +35,7 @@ def compute_loss(prediction, target):
 
 def build_net(feature_shape, batch_size, out_size):
     # create the network
-    feature_var = tt.tensor3('feature_input', dtype='float32')
+    feature_var = tt.matrix('feature_input', dtype='float32')
     target_var = tt.matrix('target_output', dtype='int32')
     network = stack_layers(feature_var, feature_shape, batch_size, out_size)
 
@@ -47,7 +47,7 @@ def build_net(feature_shape, batch_size, out_size):
     loss = compute_loss(prediction, target_var) + l2_penalty * 1e-4
 
     params = lnn.layers.get_all_params(network, trainable=True)
-    updates = lnn.updates.adam(loss, params, learning_rate=0.0001)
+    updates = lnn.updates.adam(loss, params, learning_rate=0.001)
 
     # max norm constraint on weights
     all_non_bias_params = lnn.layers.get_all_params(network, trainable=True,
@@ -80,8 +80,7 @@ def main():
 
     beatles = data.Beatles()
     files = beatles.get_fold_split()
-    train_set, val_set, test_set = data.get_whitened_context_datasources(
-        files, context_size=5)
+    train_set, val_set, test_set = data.get_whitened_datasources(files)
 
     print(Colors.blue('Train Set:'))
     print('\t', train_set)

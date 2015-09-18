@@ -10,17 +10,45 @@ import data
 from nn.utils import Colors
 
 
+N_SPECTRA = 3
+
+
 def stack_layers(feature_var, feature_shape, batch_size, out_size):
     net = lnn.layers.InputLayer(name='input',
                                 shape=(batch_size,) + feature_shape,
                                 input_var=feature_var)
 
-    nl = lnn.nonlinearities.rectify
+    # first, we have to reshape the input in a way that the spectra for
+    # each frame_size are 'color channels', the time context is 'rows', and
+    # the spectrogram bins are 'columns', i.e. the shape has to be
+    # (None, frame_size, context, bins)
 
-    net = lnn.layers.DenseLayer(net, num_units=128, nonlinearity=nl)
-    net = lnn.layers.DropoutLayer(net, p=0.5)
-    net = lnn.layers.DenseLayer(net, num_units=128, nonlinearity=nl)
-    net = lnn.layers.DropoutLayer(net, p=0.5)
+    net = lnn.layers.reshape(net, (-1,  # we do not know how many inputs we get
+                                   feature_shape[0],  # context
+                                   N_SPECTRA,  # number of spectra
+                                   feature_shape[1] / N_SPECTRA  # bins per spec
+                                   ),
+                             name='reshape'
+                             )
+
+    # now, shuffle dims so that number of spectra is in the second dim
+    net = lnn.layers.dimshuffle(net, (0, 2, 1, 3), name='transpose')
+
+    net = lnn.layers.conv.Conv2DLayer(net, num_filters=25,
+                                      filter_size=(3, 12),
+                                      name='conv')
+
+    net = lnn.layers.DropoutLayer(net, p=0.3)
+
+    net = lnn.layers.DenseLayer(net, num_units=128,
+                                nonlinearity=lnn.nonlinearities.rectify,
+                                name='fc-1')
+
+    net = lnn.layers.DenseLayer(net, num_units=128,
+                                nonlinearity=lnn.nonlinearities.rectify,
+                                name='fc-2')
+
+    net = lnn.layers.DropoutLayer(net, p=0.3)
 
     # output layer
     net = lnn.layers.DenseLayer(net, name='output', num_units=out_size,
@@ -41,20 +69,17 @@ def build_net(feature_shape, batch_size, out_size):
 
     # create train function
     prediction = lnn.layers.get_output(network)
-
-    l2_penalty = lnn.regularization.regularize_network_params(
-        network, lnn.regularization.l2)
-    loss = compute_loss(prediction, target_var) + l2_penalty * 1e-4
-
+    loss = compute_loss(prediction, target_var)
     params = lnn.layers.get_all_params(network, trainable=True)
-    updates = lnn.updates.adam(loss, params, learning_rate=0.0001)
+
+    updates = lnn.updates.adam(loss, params, learning_rate=0.00002)
 
     # max norm constraint on weights
     all_non_bias_params = lnn.layers.get_all_params(network, trainable=True,
                                                     regularizable=True)
     for param, update in updates.iteritems():
         if param in all_non_bias_params:
-            updates[param] = lnn.updates.norm_constraint(update, max_norm=4)
+            updates[param] = lnn.updates.norm_constraint(update, max_norm=1.)
 
     train = theano.function([feature_var, target_var], loss,
                             updates=updates)
@@ -80,8 +105,7 @@ def main():
 
     beatles = data.Beatles()
     files = beatles.get_fold_split()
-    train_set, val_set, test_set = data.get_whitened_context_datasources(
-        files, context_size=5)
+    train_set, val_set, test_set = data.get_whitened_context_datasources(files)
 
     print(Colors.blue('Train Set:'))
     print('\t', train_set)

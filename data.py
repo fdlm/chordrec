@@ -99,39 +99,35 @@ def compute_features(audio_file):
     return np.hstack(specs).astype(np.float32)
 
 
-def get_whitened_context_datasources(files):
+def get_whitened_context_datasources(files, context_size=3):
+    return get_whitened_datasources(
+        files, data_source_type=dmgr.datasources.ContextDataSource,
+        context_size=context_size
+    )
+
+
+def get_whitened_datasources(files, **kwargs):
+    preproc = dmgr.preprocessing.DataWhitener()
+
     train_set = dmgr.datasources.AggregatedDataSource.from_files(
         files['train']['feat'], files['train']['targ'], memory_mapped=True,
-        data_source_type=dmgr.datasources.ContextDataSource,
-        context_size=3
+        preprocessors=[preproc],
+        **kwargs
     )
 
     val_set = dmgr.datasources.AggregatedDataSource.from_files(
         files['val']['feat'], files['val']['targ'], memory_mapped=True,
-        data_source_type=dmgr.datasources.ContextDataSource,
-        context_size=3
+        preprocessors=[preproc],
+        **kwargs
     )
 
     test_set = dmgr.datasources.AggregatedDataSource.from_files(
         files['test']['feat'], files['test']['targ'], memory_mapped=True,
-        data_source_type=dmgr.datasources.ContextDataSource,
-        context_size=3
+        preprocessors=[preproc],
+        **kwargs
     )
 
-    preproc = dmgr.preprocessing.DataWhitener()
     preproc.train(train_set, batch_size=4096)
-
-    train_set = dmgr.datasources.PreProcessedDataSource(
-        train_set, preproc
-    )
-
-    val_set = dmgr.datasources.PreProcessedDataSource(
-        val_set, preproc
-    )
-
-    test_set = dmgr.datasources.PreProcessedDataSource(
-        test_set, preproc
-    )
 
     return train_set, val_set, test_set
 
