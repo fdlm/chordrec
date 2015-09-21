@@ -1,4 +1,5 @@
 from __future__ import print_function
+import numpy as np
 import theano
 import theano.tensor as tt
 import sklearn.metrics
@@ -27,7 +28,9 @@ def stack_layers(feature_var, mask_var, feature_shape, batch_size, max_seq_len,
     net = lnn.layers.RecurrentLayer(net, name='recurrent',
                                     num_units=128,
                                     mask_input=mask_in,
-                                    grad_clipping=1.
+                                    grad_clipping=100,
+                                    # W_in_to_hid=lnn.init.GlorotUniform(),
+                                    # W_hid_to_hid=np.eye(128, dtype=np.float32)
                                     )
 
     # In order to connect a recurrent layer to a dense layer, we need to
@@ -37,7 +40,7 @@ def stack_layers(feature_var, mask_var, feature_shape, batch_size, max_seq_len,
     net = lnn.layers.DropoutLayer(net, p=0.5)
 
     net = lnn.layers.DenseLayer(net, num_units=128,
-                                nonlinearity=lnn.nonlinearities.softmax,
+                                nonlinearity=lnn.nonlinearities.rectify,
                                 name='fc-1')
     net = lnn.layers.DropoutLayer(net, p=0.5)
 
@@ -49,9 +52,6 @@ def stack_layers(feature_var, mask_var, feature_shape, batch_size, max_seq_len,
     net = lnn.layers.ReshapeLayer(net,
                                   (true_batch_size, true_seq_len, out_size),
                                   name='output-reshape')
-
-    # net = lnn.layers.DenseLayer(net, name='output', num_units=out_size,
-    #                             nonlinearity=lnn.nonlinearities.softmax)
 
     return net
 
@@ -71,19 +71,21 @@ def build_net(feature_shape, batch_size, max_seq_len, out_size):
 
     # create train function
     prediction = lnn.layers.get_output(network)
+
     l2_penalty = lnn.regularization.regularize_network_params(
         network, lnn.regularization.l2)
-    loss = compute_loss(prediction, target_var) + l2_penalty * 1e-4
+    loss = compute_loss(prediction, target_var) + l2_penalty * 1e-6
+
     params = lnn.layers.get_all_params(network, trainable=True)
 
-    updates = lnn.updates.adagrad(loss, params, learning_rate=0.001)
+    updates = lnn.updates.adam(loss, params)
 
     # max norm constraint on weights
-    all_non_bias_params = lnn.layers.get_all_params(network, trainable=True,
-                                                    regularizable=True)
-    for param, update in updates.iteritems():
-        if param in all_non_bias_params:
-            updates[param] = lnn.updates.norm_constraint(update, max_norm=1.)
+    # all_non_bias_params = lnn.layers.get_all_params(network, trainable=True,
+    #                                                 regularizable=True)
+    # for param, update in updates.iteritems():
+    #     if param in all_non_bias_params:
+    #         updates[param] = lnn.updates.norm_constraint(update, max_norm=1.)
 
     train = theano.function([feature_var, mask_var, target_var], loss,
                             updates=updates)
@@ -100,9 +102,8 @@ def build_net(feature_shape, batch_size, max_seq_len, out_size):
     return nn.NeuralNetwork(network, train, test, process)
 
 
-# train on 10 sequences of 10.25 seconds length
-BATCH_SIZE = 10
-MAX_SEQ_LEN = 512
+BATCH_SIZE = 64
+MAX_SEQ_LEN = 1024
 
 
 def main():
@@ -128,7 +129,7 @@ def main():
 
     train_neural_net = build_net(
         feature_shape=train_set.feature_shape,
-        batch_size=None,
+        batch_size=BATCH_SIZE,
         max_seq_len=MAX_SEQ_LEN,
         out_size=train_set.target_shape[0]
     )
@@ -140,9 +141,11 @@ def main():
     print(Colors.red('Starting training...\n'))
 
     best_params = nn.train(
-        train_neural_net, train_set, n_epochs=100, batch_size=BATCH_SIZE,
-        validation_set=val_set, early_stop=10,
+        train_neural_net, train_set, n_epochs=1000, batch_size=BATCH_SIZE,
+        validation_set=val_set, early_stop=20,
         batch_iterator=dmgr.iterators.iterate_datasources,
+        save_params=False,
+        # save_params='rnn_params_ep{}.pkl',
         sequence_length=MAX_SEQ_LEN
     )
 
@@ -157,7 +160,7 @@ def main():
         out_size=test_set.target_shape[0]
     )
 
-    lnn.layers.set_all_param_values(test_neural_net.network, best_params)
+    test_neural_net.set_parameters(best_params)
 
     # when predicting, we feed the net one song at a time
     predictions = nn.predict_rnn(
