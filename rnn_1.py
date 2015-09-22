@@ -25,13 +25,12 @@ def stack_layers(feature_var, mask_var, feature_shape, batch_size, max_seq_len,
                                     input_var=mask_var,
                                     shape=(batch_size, max_seq_len))
 
-    net = lnn.layers.RecurrentLayer(net, name='recurrent',
-                                    num_units=128,
-                                    mask_input=mask_in,
-                                    grad_clipping=100,
-                                    # W_in_to_hid=lnn.init.GlorotUniform(),
-                                    # W_hid_to_hid=np.eye(128, dtype=np.float32)
-                                    )
+    net = lnn.layers.RecurrentLayer(
+        net, name='recurrent', num_units=128, mask_input=mask_in,
+        grad_clipping=1., W_in_to_hid=lnn.init.HeUniform(),
+        # W_hid_to_hid=np.eye(128, dtype=np.float32) * 0.9
+        W_hid_to_hid=lnn.init.HeUniform()
+    )
 
     # In order to connect a recurrent layer to a dense layer, we need to
     # flatten the first two dimensions (our "sample dimensions"); this will
@@ -78,14 +77,7 @@ def build_net(feature_shape, batch_size, max_seq_len, out_size):
 
     params = lnn.layers.get_all_params(network, trainable=True)
 
-    updates = lnn.updates.adam(loss, params)
-
-    # max norm constraint on weights
-    # all_non_bias_params = lnn.layers.get_all_params(network, trainable=True,
-    #                                                 regularizable=True)
-    # for param, update in updates.iteritems():
-    #     if param in all_non_bias_params:
-    #         updates[param] = lnn.updates.norm_constraint(update, max_norm=1.)
+    updates = lnn.updates.adam(loss, params, learning_rate=0.001)
 
     train = theano.function([feature_var, mask_var, target_var], loss,
                             updates=updates)
@@ -112,7 +104,12 @@ def main():
 
     beatles = data.Beatles()
     files = beatles.get_fold_split()
-    train_set, val_set, test_set = data.get_whitened_datasources(files)
+
+    train_set, val_set, test_set = data.get_preprocessed_datasources(
+        files,
+        preprocessors=[dmgr.preprocessing.DataWhitener(),
+                       dmgr.preprocessing.MaxNorm()]
+    )
 
     print(Colors.blue('Train Set:'))
     print('\t', train_set)
@@ -144,8 +141,6 @@ def main():
         train_neural_net, train_set, n_epochs=1000, batch_size=BATCH_SIZE,
         validation_set=val_set, early_stop=20,
         batch_iterator=dmgr.iterators.iterate_datasources,
-        save_params=False,
-        # save_params='rnn_params_ep{}.pkl',
         sequence_length=MAX_SEQ_LEN
     )
 

@@ -6,6 +6,7 @@ import lasagne as lnn
 
 import nn
 import data
+import dmgr
 
 from nn.utils import Colors
 
@@ -80,8 +81,11 @@ def main():
 
     beatles = data.Beatles()
     files = beatles.get_fold_split()
-    train_set, val_set, test_set = data.get_whitened_context_datasources(
-        files, context_size=5)
+    train_set, val_set, test_set = data.get_preprocessed_context_datasources(
+        files, context_size=5,
+        preprocessors=[dmgr.preprocessing.DataWhitener(),
+                       dmgr.preprocessing.MaxNorm()]
+    )
 
     print(Colors.blue('Train Set:'))
     print('\t', train_set)
@@ -111,7 +115,7 @@ def main():
     best_params = nn.train(
         neural_net, train_set, n_epochs=100, batch_size=BATCH_SIZE,
         validation_set=val_set, early_stop=10,
-        threaded=5
+        threaded=10
     )
 
     print(Colors.red('Starting testing...\n'))

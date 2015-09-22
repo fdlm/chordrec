@@ -99,37 +99,52 @@ def compute_features(audio_file):
     return np.hstack(specs).astype(np.float32)
 
 
-def get_whitened_context_datasources(files, context_size=3):
-    return get_whitened_datasources(
-        files, data_source_type=dmgr.datasources.ContextDataSource,
-        context_size=context_size
-    )
-
-
-def get_whitened_datasources(files, **kwargs):
-    preproc = dmgr.preprocessing.DataWhitener()
-
+def get_preprocessed_datasources(files, preprocessors, **kwargs):
     train_set = dmgr.datasources.AggregatedDataSource.from_files(
         files['train']['feat'], files['train']['targ'], memory_mapped=True,
-        preprocessors=[preproc],
+        preprocessors=preprocessors,
         **kwargs
     )
 
     val_set = dmgr.datasources.AggregatedDataSource.from_files(
         files['val']['feat'], files['val']['targ'], memory_mapped=True,
-        preprocessors=[preproc],
+        preprocessors=preprocessors,
         **kwargs
     )
 
     test_set = dmgr.datasources.AggregatedDataSource.from_files(
         files['test']['feat'], files['test']['targ'], memory_mapped=True,
-        preprocessors=[preproc],
+        preprocessors=preprocessors,
         **kwargs
     )
 
-    preproc.train(train_set, batch_size=4096)
+    for p in preprocessors:
+        p.train(train_set)
 
     return train_set, val_set, test_set
+
+
+def get_preprocessed_context_datasources(files, preprocessors, context_size,
+                                         **kwargs):
+    return get_preprocessed_datasources(
+        files, preprocessors,
+        data_source_type=dmgr.datasources.ContextDataSource,
+        context_size=context_size,
+        **kwargs
+    )
+
+
+# this function is here for legacy reasons and might be removed soon
+def get_whitened_context_datasources(files, context_size=3, **kwargs):
+    preproc = dmgr.preprocessing.DataWhitener()
+    return get_preprocessed_context_datasources(
+        files, [preproc], context_size=context_size, **kwargs)
+
+
+# this function is here for legacy reasons and might be removed soon
+def get_whitened_datasources(files, **kwargs):
+    preproc = dmgr.preprocessing.DataWhitener()
+    return get_preprocessed_datasources(files, [preproc], **kwargs)
 
 
 class Beatles:
