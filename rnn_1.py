@@ -2,12 +2,13 @@ from __future__ import print_function
 import numpy as np
 import theano
 import theano.tensor as tt
-import sklearn.metrics
 import lasagne as lnn
 
 import nn
-import data
 import dmgr
+
+import data
+import test
 
 from nn.utils import Colors
 
@@ -144,10 +145,11 @@ def main():
         sequence_length=MAX_SEQ_LEN
     )
 
-    print(Colors.red('Starting testing...\n'))
+    print(Colors.red('\nStarting testing...\n'))
 
     del train_neural_net
 
+    # build test rnn with batch size 1 and no max sequence length
     test_neural_net = build_net(
         feature_shape=test_set.feature_shape,
         batch_size=1,
@@ -157,18 +159,21 @@ def main():
 
     test_neural_net.set_parameters(best_params)
 
-    # when predicting, we feed the net one song at a time
-    predictions = nn.predict_rnn(
-        test_neural_net, test_set, batch_size=1,
-        batch_iterator=dmgr.iterators.iterate_datasources,
-        sequence_length=None
+    dest_dir = './results/bdrnn_1'
+    pred_files = test.compute_labeling(test_neural_net, test_set,
+                                       dest_dir=dest_dir,
+                                       rnn=True)
+    print('\tWrote chord predictions to {}.'.format(dest_dir))
+
+    print(Colors.red('\nResults:\n'))
+
+    test_gt_files = dmgr.files.match_files(
+        pred_files, beatles.gt_files, test.PREDICTION_EXT, data.GT_EXT
     )
 
-    pred_class = predictions.argmax(axis=1)
-    ids = range(test_set.n_data)
-    correct_class = test_set[ids][1].argmax(axis=1)
+    test.print_scores(test.compute_average_scores(test_gt_files, pred_files))
 
-    print(sklearn.metrics.classification_report(correct_class, pred_class))
+    print('')
 
 
 if __name__ == '__main__':

@@ -1,11 +1,12 @@
 from __future__ import print_function
 import theano
 import theano.tensor as tt
-import sklearn.metrics
 import lasagne as lnn
 
 import nn
+import dmgr
 import data
+import test
 
 from nn.utils import Colors
 
@@ -105,7 +106,11 @@ def main():
 
     beatles = data.Beatles()
     files = beatles.get_fold_split()
-    train_set, val_set, test_set = data.get_whitened_context_datasources(files)
+    train_set, val_set, test_set = data.get_preprocessed_context_datasources(
+        files, context_size=5,
+        preprocessors=[dmgr.preprocessing.DataWhitener(),
+                       dmgr.preprocessing.MaxNorm()]
+    )
 
     print(Colors.blue('Train Set:'))
     print('\t', train_set)
@@ -138,17 +143,22 @@ def main():
         threaded=5
     )
 
-    print(Colors.red('Starting testing...\n'))
+    print(Colors.red('\nStarting testing...\n'))
 
-    predictions = nn.predict(
-        neural_net, test_set, BATCH_SIZE
+    dest_dir = './results/convnet_1'
+    pred_files = test.compute_labeling(neural_net, test_set, dest_dir=dest_dir,
+                                       rnn=False)
+    print('\tWrote chord predictions to {}.'.format(dest_dir))
+
+    print(Colors.red('\nResults:\n'))
+
+    test_gt_files = dmgr.files.match_files(
+        pred_files, beatles.gt_files, test.PREDICTION_EXT, data.GT_EXT
     )
 
-    pred_class = predictions.argmax(axis=1)
-    ids = range(test_set.n_data)
-    correct_class = test_set[ids][1].argmax(axis=1)
+    test.print_scores(test.compute_average_scores(test_gt_files, pred_files))
 
-    print(sklearn.metrics.classification_report(correct_class, pred_class))
+    print('')
 
 
 if __name__ == '__main__':

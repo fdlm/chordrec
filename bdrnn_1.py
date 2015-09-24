@@ -2,12 +2,13 @@ from __future__ import print_function
 import numpy as np
 import theano
 import theano.tensor as tt
-import sklearn.metrics
 import lasagne as lnn
 
 import nn
-import data
 import dmgr
+
+import data
+import test
 
 from nn.utils import Colors
 
@@ -27,13 +28,15 @@ def stack_layers(feature_var, mask_var, feature_shape, batch_size, max_seq_len,
 
     fwd = lnn.layers.RecurrentLayer(
         net, name='recurrent_fwd', num_units=64, mask_input=mask_in,
-        grad_clipping=1., W_in_to_hid=lnn.init.GlorotUniform(),
+        grad_clipping=1.,
+        W_in_to_hid=lnn.init.GlorotUniform(),
         W_hid_to_hid=np.eye(64, dtype=np.float32) * 0.9
     )
 
     bck = lnn.layers.RecurrentLayer(
         net, name='recurrent_bck', num_units=64, mask_input=mask_in,
-        grad_clipping=1., W_in_to_hid=lnn.init.GlorotUniform(),
+        grad_clipping=1.,
+        W_in_to_hid=lnn.init.GlorotUniform(),
         W_hid_to_hid=np.eye(64, dtype=np.float32) * 0.9,
         backwards=True
     )
@@ -44,13 +47,14 @@ def stack_layers(feature_var, mask_var, feature_shape, batch_size, max_seq_len,
     # In order to connect a recurrent layer to a dense layer, we need to
     # flatten the first two dimensions (our "sample dimensions"); this will
     # cause each time step of each sequence to be processed independently
-    net = lnn.layers.ReshapeLayer(net, (-1, 128), name='reshape to single')
-    net = lnn.layers.DropoutLayer(net, p=0.5)
+    net = lnn.layers.ReshapeLayer(net, (-1, 512), name='reshape to single')
+
+    net = lnn.layers.DropoutLayer(net, p=0.3)
 
     net = lnn.layers.DenseLayer(net, num_units=128,
                                 nonlinearity=lnn.nonlinearities.rectify,
                                 name='fc-1')
-    net = lnn.layers.DropoutLayer(net, p=0.5)
+    net = lnn.layers.DropoutLayer(net, p=0.3)
 
     net = lnn.layers.DenseLayer(net, num_units=out_size,
                                 nonlinearity=lnn.nonlinearities.softmax,
@@ -86,7 +90,7 @@ def build_net(feature_shape, batch_size, max_seq_len, out_size):
 
     params = lnn.layers.get_all_params(network, trainable=True)
 
-    updates = lnn.updates.adam(loss, params, learning_rate=0.001)
+    updates = lnn.updates.adam(loss, params, learning_rate=0.0001)
 
     train = theano.function([feature_var, mask_var, target_var], loss,
                             updates=updates)
@@ -103,8 +107,8 @@ def build_net(feature_shape, batch_size, max_seq_len, out_size):
     return nn.NeuralNetwork(network, train, test, process)
 
 
-BATCH_SIZE = 64
-MAX_SEQ_LEN = 1024
+BATCH_SIZE = 32
+MAX_SEQ_LEN = 4096
 
 
 def main():
@@ -153,10 +157,11 @@ def main():
         sequence_length=MAX_SEQ_LEN
     )
 
-    print(Colors.red('Starting testing...\n'))
+    print(Colors.red('\nStarting testing...\n'))
 
     del train_neural_net
 
+    # build test rnn with batch size 1 and no max sequence length
     test_neural_net = build_net(
         feature_shape=test_set.feature_shape,
         batch_size=1,
@@ -166,18 +171,21 @@ def main():
 
     test_neural_net.set_parameters(best_params)
 
-    # when predicting, we feed the net one song at a time
-    predictions = nn.predict_rnn(
-        test_neural_net, test_set, batch_size=1,
-        batch_iterator=dmgr.iterators.iterate_datasources,
-        sequence_length=None
+    dest_dir = './results/bdrnn_1'
+    pred_files = test.compute_labeling(test_neural_net, test_set,
+                                       dest_dir=dest_dir,
+                                       rnn=True)
+    print('\tWrote chord predictions to {}.'.format(dest_dir))
+
+    print(Colors.red('\nResults:\n'))
+
+    test_gt_files = dmgr.files.match_files(
+        pred_files, beatles.gt_files, test.PREDICTION_EXT, data.GT_EXT
     )
 
-    pred_class = predictions.argmax(axis=1)
-    ids = range(test_set.n_data)
-    correct_class = test_set[ids][1].argmax(axis=1)
+    test.print_scores(test.compute_average_scores(test_gt_files, pred_files))
 
-    print(sklearn.metrics.classification_report(correct_class, pred_class))
+    print('')
 
 
 if __name__ == '__main__':

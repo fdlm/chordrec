@@ -83,6 +83,44 @@ def compute_targets(target_file, num_frames, fps):
     return one_hot[np.nonzero(target_per_frame)[1]]
 
 
+def predictions_to_chord_label(predictions, fps):
+    natural = zip([0, 2, 3, 5, 7, 8, 10], string.uppercase[:7])
+    sharp = map(lambda v: ((v[0] + 1) % 12, v[1] + '#'), natural)
+
+    semitone_to_label = dict(natural + sharp)
+
+    def pred_to_cl(pred):
+        if pred == 24:
+            return 'N'
+        return '{}:{}'.format(semitone_to_label[pred % 12],
+                              'maj' if pred < 12 else 'min')
+
+    spf = 1. / fps
+    labels = [(i * spf, pred_to_cl(p)) for i, p in enumerate(predictions)]
+
+    # join same consequtive predictions
+    prev_label = (None, None)
+    uniq_labels = []
+
+    for label in labels:
+        if label[1] != prev_label[1]:
+            uniq_labels.append(label)
+            prev_label = label
+
+    # end time of last label is one frame duration after
+    # the last prediction time
+    start_times, chord_labels = zip(*uniq_labels)
+    end_times = start_times[1:] + (labels[-1][0] + spf,)
+
+    return zip(start_times, end_times, chord_labels)
+
+
+def write_chord_predictions(filename, predictions, fps):
+    with open(filename, 'w') as f:
+        f.writelines(['{:.3f}\t{:.3f}\t{}\n'.format(*p)
+                      for p in predictions_to_chord_label(predictions, fps)])
+
+
 def compute_features(audio_file):
     """
     This function just computes the features for an audio file
@@ -100,6 +138,27 @@ def compute_features(audio_file):
 
 
 def get_preprocessed_datasources(files, preprocessors, **kwargs):
+    """
+    This function creates datasources with given preprocessors given
+    a files dictionary. The dictionary looks as follows:
+
+    {'train': {'feat': [train feature files],
+               'targ': [train targets files]}
+     'val': {'feat': [validation feature files],
+             'targ': [validation target files]},
+     'test': {'feat': [test feature files],
+             'targ': [test target files]}
+    }
+
+    The preprocessors are trained on the training data.
+
+    :param files:         file dictionary with the aforementioned format
+    :param preprocessors: list of preprocessors to be applied to the data
+    :param kwargs:        additional arguments to be passed to
+                          AggregatedDataSource.from_files
+    :return:              tuple of train data source, validation data source
+                          and test data source
+    """
     train_set = dmgr.datasources.AggregatedDataSource.from_files(
         files['train']['feat'], files['train']['targ'], memory_mapped=True,
         preprocessors=preprocessors,
@@ -126,6 +185,17 @@ def get_preprocessed_datasources(files, preprocessors, **kwargs):
 
 def get_preprocessed_context_datasources(files, preprocessors, context_size,
                                          **kwargs):
+    """
+    Convenience function that creates context data sources based on
+    get_preprocessed_datasources.
+    :param files:         file dictionary with the aforementioned format
+    :param preprocessors: list of preprocessors to be applied to the data
+    :param context_size:  context size in each direction
+    :param kwargs:        additional arguments to be passed to
+                          AggregatedDataSource.from_files
+    :return:              tuple of train data source, validation data source
+                          and test data source
+    """
     return get_preprocessed_datasources(
         files, preprocessors,
         data_source_type=dmgr.datasources.ContextDataSource,
@@ -134,22 +204,17 @@ def get_preprocessed_context_datasources(files, preprocessors, context_size,
     )
 
 
-# this function is here for legacy reasons and might be removed soon
-def get_whitened_context_datasources(files, context_size=3, **kwargs):
-    preproc = dmgr.preprocessing.DataWhitener()
-    return get_preprocessed_context_datasources(
-        files, [preproc], context_size=context_size, **kwargs)
-
-
-# this function is here for legacy reasons and might be removed soon
-def get_whitened_datasources(files, **kwargs):
-    preproc = dmgr.preprocessing.DataWhitener()
-    return get_preprocessed_datasources(files, [preproc], **kwargs)
-
-
 class Beatles:
+    """
+    Class for easier loading of the Beatles dataset
+    """
 
     def __init__(self, data_dir=DATA_DIR, feature_cache_dir=CACHE_DIR):
+        """
+        Initialises the dataset class
+        :param data_dir:          dataset directory
+        :param feature_cache_dir: directory where to store cached features
+        """
         data_dir = os.path.join(data_dir, 'beatles')
         feature_cache_dir = os.path.join(feature_cache_dir, 'beatles')
 
@@ -167,6 +232,7 @@ class Beatles:
 
         self.feature_files = feat_files
         self.target_files = target_files
+        self.gt_files = gt_files
 
         split_dir = os.path.join(data_dir, 'splits')
 
@@ -177,6 +243,12 @@ class Beatles:
         ]
 
     def get_fold_split(self, val_fold=0, test_fold=1):
+        """
+        Creates a file dictionary as used by get_preprocessed_datasource.
+        :param val_fold:  index of validation fold
+        :param test_fold: index of test fold
+        :return: file dictionary
+        """
         train_feat, val_feat, test_feat = \
             dmgr.files.predefined_train_val_test_split(
                 self.feature_files,
