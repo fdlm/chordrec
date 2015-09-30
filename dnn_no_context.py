@@ -44,8 +44,8 @@ def build_net(feature_shape, batch_size, out_size):
     prediction = lnn.layers.get_output(network)
 
     l2_penalty = lnn.regularization.regularize_network_params(
-        network, lnn.regularization.l2)
-    loss = compute_loss(prediction, target_var) + l2_penalty * 1e-4
+        network, lnn.regularization.l2) * 1e-4
+    loss = compute_loss(prediction, target_var) + l2_penalty
 
     params = lnn.layers.get_all_params(network, trainable=True)
     updates = lnn.updates.adam(loss, params, learning_rate=0.001)
@@ -63,10 +63,9 @@ def build_net(feature_shape, batch_size, out_size):
     # create test and process function. process just computes the prediction
     # without computing the loss, and thus does not need target labels
     test_prediction = lnn.layers.get_output(network, deterministic=True)
-    test_loss = compute_loss(test_prediction, target_var)
+    test_loss = compute_loss(test_prediction, target_var) + l2_penalty
 
-    test = theano.function([feature_var, target_var],
-                           test_loss)
+    test = theano.function([feature_var, target_var], test_loss)
     process = theano.function([feature_var], test_prediction)
 
     return nn.NeuralNetwork(network, train, test, process)
@@ -79,7 +78,7 @@ def main():
 
     print(Colors.red('Loading data...\n'))
 
-    beatles = data.Beatles()
+    beatles = data.load_beatles_dataset()
     files = beatles.get_fold_split()
     train_set, val_set, test_set = data.get_preprocessed_datasources(
         files,
@@ -121,6 +120,7 @@ def main():
     print(Colors.red('\nStarting testing...\n'))
 
     dest_dir = './results/dnn_no_context'
+    neural_net.set_parameters(best_params)
     pred_files = test.compute_labeling(neural_net, test_set, dest_dir=dest_dir,
                                        rnn=False)
     print('\tWrote chord predictions to {}.'.format(dest_dir))

@@ -30,14 +30,18 @@ def stack_layers(feature_var, mask_var, feature_shape, batch_size, max_seq_len,
         net, name='recurrent_fwd', num_units=64, mask_input=mask_in,
         grad_clipping=1.,
         W_in_to_hid=lnn.init.GlorotUniform(),
-        W_hid_to_hid=np.eye(64, dtype=np.float32) * 0.9
+        W_hid_to_hid=lnn.init.Orthogonal(),
+        learn_init=True
+        # W_hid_to_hid=np.eye(64, dtype=np.float32) * 0.9
     )
 
     bck = lnn.layers.RecurrentLayer(
         net, name='recurrent_bck', num_units=64, mask_input=mask_in,
         grad_clipping=1.,
         W_in_to_hid=lnn.init.GlorotUniform(),
-        W_hid_to_hid=np.eye(64, dtype=np.float32) * 0.9,
+        W_hid_to_hid=lnn.init.Orthogonal(),
+        learn_init=True,
+        # W_hid_to_hid=np.eye(64, dtype=np.float32) * 0.9,
         backwards=True
     )
 
@@ -47,7 +51,7 @@ def stack_layers(feature_var, mask_var, feature_shape, batch_size, max_seq_len,
     # In order to connect a recurrent layer to a dense layer, we need to
     # flatten the first two dimensions (our "sample dimensions"); this will
     # cause each time step of each sequence to be processed independently
-    net = lnn.layers.ReshapeLayer(net, (-1, 512), name='reshape to single')
+    net = lnn.layers.ReshapeLayer(net, (-1, 128), name='reshape to single')
 
     net = lnn.layers.DropoutLayer(net, p=0.3)
 
@@ -85,8 +89,8 @@ def build_net(feature_shape, batch_size, max_seq_len, out_size):
     prediction = lnn.layers.get_output(network)
 
     l2_penalty = lnn.regularization.regularize_network_params(
-        network, lnn.regularization.l2)
-    loss = compute_loss(prediction, target_var) + l2_penalty * 1e-6
+        network, lnn.regularization.l2) * 1e-6
+    loss = compute_loss(prediction, target_var) + l2_penalty
 
     params = lnn.layers.get_all_params(network, trainable=True)
 
@@ -98,10 +102,9 @@ def build_net(feature_shape, batch_size, max_seq_len, out_size):
     # create test and process function. process just computes the prediction
     # without computing the loss, and thus does not need target labels
     test_prediction = lnn.layers.get_output(network, deterministic=True)
-    test_loss = compute_loss(test_prediction, target_var)
+    test_loss = compute_loss(test_prediction, target_var) + l2_penalty
 
-    test = theano.function([feature_var, mask_var, target_var],
-                           test_loss)
+    test = theano.function([feature_var, mask_var, target_var], test_loss)
     process = theano.function([feature_var, mask_var], test_prediction)
 
     return nn.NeuralNetwork(network, train, test, process)
@@ -115,7 +118,7 @@ def main():
 
     print(Colors.red('Loading data...\n'))
 
-    beatles = data.Beatles()
+    beatles = data.load_beatles_dataset()
     files = beatles.get_fold_split()
 
     train_set, val_set, test_set = data.get_preprocessed_datasources(

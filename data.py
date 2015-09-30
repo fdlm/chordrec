@@ -5,7 +5,7 @@ import string
 import dmgr
 
 
-FPS = 50
+FPS = 20
 DATA_DIR = 'data'
 CACHE_DIR = 'feature_cache'
 SRC_EXT = '.flac'
@@ -129,9 +129,10 @@ def compute_features(audio_file):
     """
     specs = [
         mm.audio.spectrogram.LogarithmicFilteredSpectrogram(
-            audio_file, fps=FPS, num_bands=12, frame_size=ffts,
+            audio_file, fps=FPS, frame_size=ffts,
+            num_bands=24, fmax=5500,
             unique_filters=False)
-        for ffts in [1024, 2048, 4096]
+        for ffts in [4096]
     ]
 
     return np.hstack(specs).astype(np.float32)
@@ -204,19 +205,18 @@ def get_preprocessed_context_datasources(files, preprocessors, context_size,
     )
 
 
-class Beatles:
+class Dataset:
     """
-    Class for easier loading of the Beatles dataset
+    Class for easier dataset loading
     """
 
-    def __init__(self, data_dir=DATA_DIR, feature_cache_dir=CACHE_DIR):
+    def __init__(self, data_dir, feature_cache_dir, split_defs):
         """
         Initialises the dataset class
-        :param data_dir:          dataset directory
+        :param data_dir:          dataset base directory
         :param feature_cache_dir: directory where to store cached features
+        :param split_defs         files containing the fold split definitions
         """
-        data_dir = os.path.join(data_dir, 'beatles')
-        feature_cache_dir = os.path.join(feature_cache_dir, 'beatles')
 
         src_files = dmgr.files.expand(data_dir, '*' + SRC_EXT)
         gt_files = dmgr.files.expand(data_dir, '*' + GT_EXT)
@@ -234,13 +234,7 @@ class Beatles:
         self.target_files = target_files
         self.gt_files = gt_files
 
-        split_dir = os.path.join(data_dir, 'splits')
-
-        self.split_defs = [
-            os.path.join(split_dir,
-                         '8-fold_cv_album_distributed_{}.fold'.format(f))
-            for f in range(8)
-        ]
+        self.split_defs = split_defs
 
     def get_fold_split(self, val_fold=0, test_fold=1):
         """
@@ -249,6 +243,9 @@ class Beatles:
         :param test_fold: index of test fold
         :return: file dictionary
         """
+        if not self.split_defs:
+            raise RuntimeError('No cross-validation folds defined!')
+
         train_feat, val_feat, test_feat = \
             dmgr.files.predefined_train_val_test_split(
                 self.feature_files,
@@ -273,3 +270,14 @@ class Beatles:
                         'targ': val_targ},
                 'test': {'feat': test_feat,
                          'targ': test_targ}}
+
+
+def load_beatles_dataset(data_dir=DATA_DIR, feature_cache_dir=CACHE_DIR):
+    return Dataset(
+        os.path.join(data_dir, 'beatles'),
+        os.path.join(feature_cache_dir, 'beatles'),
+        [os.path.join(data_dir, 'beatles', 'splits',
+                      '8-fold_cv_album_distributed_{}.fold'.format(f))
+         for f in range(8)]
+    )
+

@@ -104,7 +104,7 @@ def main():
 
     print(Colors.red('Loading data...\n'))
 
-    beatles = data.Beatles()
+    beatles = data.load_beatles_dataset()
     files = beatles.get_fold_split()
     train_set, val_set, test_set = data.get_preprocessed_context_datasources(
         files, context_size=5,
@@ -146,6 +146,7 @@ def main():
     print(Colors.red('\nStarting testing...\n'))
 
     dest_dir = './results/convnet_1'
+    neural_net.set_parameters(best_params)
     pred_files = test.compute_labeling(neural_net, test_set, dest_dir=dest_dir,
                                        rnn=False)
     print('\tWrote chord predictions to {}.'.format(dest_dir))

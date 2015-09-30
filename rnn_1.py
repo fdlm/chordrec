@@ -73,8 +73,8 @@ def build_net(feature_shape, batch_size, max_seq_len, out_size):
     prediction = lnn.layers.get_output(network)
 
     l2_penalty = lnn.regularization.regularize_network_params(
-        network, lnn.regularization.l2)
-    loss = compute_loss(prediction, target_var) + l2_penalty * 1e-6
+        network, lnn.regularization.l2) * 1e-6
+    loss = compute_loss(prediction, target_var) + l2_penalty
 
     params = lnn.layers.get_all_params(network, trainable=True)
 
@@ -86,7 +86,7 @@ def build_net(feature_shape, batch_size, max_seq_len, out_size):
     # create test and process function. process just computes the prediction
     # without computing the loss, and thus does not need target labels
     test_prediction = lnn.layers.get_output(network, deterministic=True)
-    test_loss = compute_loss(test_prediction, target_var)
+    test_loss = compute_loss(test_prediction, target_var) + l2_penalty
 
     test = theano.function([feature_var, mask_var, target_var],
                            test_loss)
@@ -103,7 +103,7 @@ def main():
 
     print(Colors.red('Loading data...\n'))
 
-    beatles = data.Beatles()
+    beatles = data.load_beatles_dataset()
     files = beatles.get_fold_split()
 
     train_set, val_set, test_set = data.get_preprocessed_datasources(
