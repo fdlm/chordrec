@@ -58,18 +58,28 @@ def compute_targets(target_file, num_frames, fps):
 
     n_chords = len(chord_class_id)
     # 25 classes - 12 major, 12 minor, one no chord
-    one_hot = np.zeros((n_chords, 25), dtype=np.int32)
-    one_hot[np.arange(n_chords), chord_class_id] = 1
+    # we will add a dummy 'NO CHORD' at the end and at the beginning,
+    # because some annotations miss it, are not exactly aligned at the end
+    # or do not start at the beginning of an audio file
+    one_hot = np.zeros((n_chords + 2, 25), dtype=np.int32)
+    one_hot[np.arange(n_chords) + 1, chord_class_id] = 1
+    # these are the dummy 'NO CHORD' annotations
+    one_hot[0, 24] = 1
+    one_hot[-1, 24] = 1
 
     # make sure everything is in its place
-    assert (one_hot.argmax(axis=1) == chord_class_id).all()
+    assert (one_hot.argmax(axis=1)[1:-1] == chord_class_id).all()
     assert (one_hot.sum(axis=1) == 1).all()
 
     # Now, we create the time stamps. if no explicit end times are given,
     # we take the start time of the next chord as end time for the current.
-    start = ann[:, 0].astype(np.float)
-    end = (ann[:, 1].astype(np.float) if ann.shape[1] > 2 else
-           np.hstack((start[1:], [np.inf])))
+    start_ann = ann[:, 0].astype(np.float)
+    end_ann = (ann[:, 1].astype(np.float) if ann.shape[1] > 2 else
+               np.hstack((start_ann[1:], [np.inf])))
+
+    # add the times for the dummy events
+    start = np.hstack(([-np.inf], start_ann, end_ann[-1]))
+    end = np.hstack((start_ann[0], end_ann, [np.inf]))
 
     # Finally, we create the one-hot encoding per frame!
     frame_times = np.arange(num_frames) * (1. / fps)
@@ -129,10 +139,10 @@ def compute_features(audio_file):
     """
     specs = [
         mm.audio.spectrogram.LogarithmicFilteredSpectrogram(
-            audio_file, fps=FPS, frame_size=ffts,
+            audio_file, num_channels=1, fps=FPS, frame_size=ffts,
             num_bands=24, fmax=5500,
             unique_filters=False)
-        for ffts in [4096]
+        for ffts in [8192]
     ]
 
     return np.hstack(specs).astype(np.float32)
@@ -238,7 +248,9 @@ class Dataset:
 
     def get_fold_split(self, val_fold=0, test_fold=1):
         """
-        Creates a file dictionary as used by get_preprocessed_datasource.
+        Creates a file dictionary (as used by get_preprocessed_datasource),
+        where train, validation, and test folds are pre-defined in split
+        files.
         :param val_fold:  index of validation fold
         :param test_fold: index of test fold
         :return: file dictionary
@@ -271,6 +283,64 @@ class Dataset:
                 'test': {'feat': test_feat,
                          'targ': test_targ}}
 
+    def get_rand_split(self, val_perc=0.2, test_perc=0.2,
+                       random=np.random.RandomState(seed=0)):
+        """
+        Creates a file dictionary (as used by get_preprocessed_datasource),
+        where train, validation, and test folds are created randomly.
+        :param val_perc:  percentage of files to be used for validation
+        :param test_perc: percentage of files to be used for testing
+        :param random:    random state
+        :return: file dictionary
+        """
+        indices = np.arange(len(self.feature_files))
+        random.shuffle(indices)
+        n_test_files = int(len(indices) * test_perc)
+        n_val_files = int(len(indices) * val_perc)
+
+        test_feat = self.feature_files[:n_test_files]
+        val_feat = self.feature_files[n_test_files:n_test_files + n_val_files]
+        train_feat = self.feature_files[n_test_files + n_val_files:]
+
+        train_targ = dmgr.files.match_files(train_feat, self.target_files,
+                                            dmgr.files.FEAT_EXT,
+                                            dmgr.files.TARGET_EXT)
+        val_targ = dmgr.files.match_files(val_feat, self.target_files,
+                                          dmgr.files.FEAT_EXT,
+                                          dmgr.files.TARGET_EXT)
+        test_targ = dmgr.files.match_files(test_feat, self.target_files,
+                                           dmgr.files.FEAT_EXT,
+                                           dmgr.files.TARGET_EXT)
+
+        return {'train': {'feat': train_feat,
+                          'targ': train_targ},
+                'val': {'feat': val_feat,
+                        'targ': val_targ},
+                'test': {'feat': test_feat,
+                         'targ': test_targ}}
+
+
+def combine_files(*args):
+    """
+    Combines file dictionaries as returned by the methods of Dataset.
+    :param args: file dictionaries
+    :return:     combined file dictionaries
+    """
+
+    combined = {'train': {'feat': [],
+                          'targ': []},
+                'val': {'feat': [],
+                        'targ': []},
+                'test': {'feat': [],
+                         'targ': []}}
+
+    for fs in args:
+        for s in combined:
+            for t in combined[s]:
+                combined[s][t] += fs[s][t]
+
+    return combined
+
 
 def load_beatles_dataset(data_dir=DATA_DIR, feature_cache_dir=CACHE_DIR):
     return Dataset(
@@ -281,3 +351,20 @@ def load_beatles_dataset(data_dir=DATA_DIR, feature_cache_dir=CACHE_DIR):
          for f in range(8)]
     )
 
+
+def load_mirex09_dataset(data_dir=DATA_DIR, feature_cache_dir=CACHE_DIR):
+    return Dataset(
+        os.path.join(data_dir, 'chords_mirex09'),
+        os.path.join(feature_cache_dir, 'chords_mirex09'),
+        None
+    )
+
+
+def load_robbie_dataset(data_dir=DATA_DIR, feature_cache_dir=CACHE_DIR):
+    return Dataset(
+        os.path.join(data_dir, 'robbie_williams'),
+        os.path.join(feature_cache_dir, 'robbie_williams'),
+        [os.path.join(data_dir, 'robbie_williams', 'splits',
+                      '8-fold_cv_random_{}.fold'.format(f))
+         for f in range(8)]
+    )

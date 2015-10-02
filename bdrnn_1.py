@@ -26,22 +26,22 @@ def stack_layers(feature_var, mask_var, feature_shape, batch_size, max_seq_len,
                                     input_var=mask_var,
                                     shape=(batch_size, max_seq_len))
 
+    n_rec_units = 32
+
     fwd = lnn.layers.RecurrentLayer(
-        net, name='recurrent_fwd', num_units=64, mask_input=mask_in,
+        net, name='recurrent_fwd', num_units=n_rec_units, mask_input=mask_in,
         grad_clipping=1.,
         W_in_to_hid=lnn.init.GlorotUniform(),
-        W_hid_to_hid=lnn.init.Orthogonal(),
-        learn_init=True
-        # W_hid_to_hid=np.eye(64, dtype=np.float32) * 0.9
+        learn_init=True,
+        W_hid_to_hid=np.eye(n_rec_units, dtype=np.float32) * 0.9
     )
 
     bck = lnn.layers.RecurrentLayer(
-        net, name='recurrent_bck', num_units=64, mask_input=mask_in,
+        net, name='recurrent_bck', num_units=n_rec_units, mask_input=mask_in,
         grad_clipping=1.,
         W_in_to_hid=lnn.init.GlorotUniform(),
-        W_hid_to_hid=lnn.init.Orthogonal(),
         learn_init=True,
-        # W_hid_to_hid=np.eye(64, dtype=np.float32) * 0.9,
+        W_hid_to_hid=np.eye(n_rec_units, dtype=np.float32) * 0.9,
         backwards=True
     )
 
@@ -51,14 +51,15 @@ def stack_layers(feature_var, mask_var, feature_shape, batch_size, max_seq_len,
     # In order to connect a recurrent layer to a dense layer, we need to
     # flatten the first two dimensions (our "sample dimensions"); this will
     # cause each time step of each sequence to be processed independently
-    net = lnn.layers.ReshapeLayer(net, (-1, 128), name='reshape to single')
+    net = lnn.layers.ReshapeLayer(net, (-1, n_rec_units * 2),
+                                  name='reshape to single')
 
-    net = lnn.layers.DropoutLayer(net, p=0.3)
+    net = lnn.layers.DropoutLayer(net, p=0.5)
 
-    net = lnn.layers.DenseLayer(net, num_units=128,
+    net = lnn.layers.DenseLayer(net, num_units=64,
                                 nonlinearity=lnn.nonlinearities.rectify,
                                 name='fc-1')
-    net = lnn.layers.DropoutLayer(net, p=0.3)
+    net = lnn.layers.DropoutLayer(net, p=0.5)
 
     net = lnn.layers.DenseLayer(net, num_units=out_size,
                                 nonlinearity=lnn.nonlinearities.softmax,
@@ -89,7 +90,7 @@ def build_net(feature_shape, batch_size, max_seq_len, out_size):
     prediction = lnn.layers.get_output(network)
 
     l2_penalty = lnn.regularization.regularize_network_params(
-        network, lnn.regularization.l2) * 1e-6
+        network, lnn.regularization.l2) * 1e-4
     loss = compute_loss(prediction, target_var) + l2_penalty
 
     params = lnn.layers.get_all_params(network, trainable=True)
@@ -118,8 +119,12 @@ def main():
 
     print(Colors.red('Loading data...\n'))
 
-    beatles = data.load_beatles_dataset()
-    files = beatles.get_fold_split()
+    mirex09 = data.load_mirex09_dataset()
+    robbie = data.load_robbie_dataset()
+    files = data.combine_files(
+        mirex09.get_rand_split(),
+        robbie.get_rand_split(val_perc=0., test_perc=0.)
+    )
 
     train_set, val_set, test_set = data.get_preprocessed_datasources(
         files,
@@ -183,7 +188,7 @@ def main():
     print(Colors.red('\nResults:\n'))
 
     test_gt_files = dmgr.files.match_files(
-        pred_files, beatles.gt_files, test.PREDICTION_EXT, data.GT_EXT
+        pred_files, mirex09.gt_files, test.PREDICTION_EXT, data.GT_EXT
     )
 
     test.print_scores(test.compute_average_scores(test_gt_files, pred_files))

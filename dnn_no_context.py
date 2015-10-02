@@ -78,8 +78,13 @@ def main():
 
     print(Colors.red('Loading data...\n'))
 
-    beatles = data.load_beatles_dataset()
-    files = beatles.get_fold_split()
+    mirex09 = data.load_mirex09_dataset()
+    robbie = data.load_robbie_dataset()
+    files = data.combine_files(
+        mirex09.get_rand_split(),
+        robbie.get_rand_split(val_perc=0., test_perc=0.)
+    )
+
     train_set, val_set, test_set = data.get_preprocessed_datasources(
         files,
         preprocessors=[dmgr.preprocessing.DataWhitener(),
@@ -128,7 +133,7 @@ def main():
     print(Colors.red('\nResults:\n'))
 
     test_gt_files = dmgr.files.match_files(
-        pred_files, beatles.gt_files, test.PREDICTION_EXT, data.GT_EXT
+        pred_files, mirex09.gt_files, test.PREDICTION_EXT, data.GT_EXT
     )
 
     test.print_scores(test.compute_average_scores(test_gt_files, pred_files))
