@@ -3,6 +3,7 @@ import numpy as np
 import theano
 import theano.tensor as tt
 import lasagne as lnn
+import dmgr.datasources
 
 import nn
 import dmgr
@@ -127,10 +128,9 @@ def main():
         robbie.get_rand_split(val_perc=0., test_perc=0.)
     )
 
-    train_set, val_set, test_set = data.get_preprocessed_datasources(
-        files,
-        preprocessors=[dmgr.preprocessing.DataWhitener(),
-                       dmgr.preprocessing.MaxNorm()]
+    train_set, val_set, test_set = dmgr.datasources.get_datasources(
+        files, preprocessors=[dmgr.preprocessing.DataWhitener(),
+                              dmgr.preprocessing.MaxNorm()]
     )
 
     print(Colors.blue('Train Set:'))

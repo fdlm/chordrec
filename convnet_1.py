@@ -2,6 +2,7 @@ from __future__ import print_function
 import theano
 import theano.tensor as tt
 import lasagne as lnn
+import dmgr.datasources
 
 import nn
 import dmgr
@@ -106,8 +107,10 @@ def main():
 
     beatles = data.load_beatles_dataset()
     files = beatles.get_fold_split()
-    train_set, val_set, test_set = data.get_preprocessed_context_datasources(
-        files, context_size=5,
+    train_set, val_set, test_set = dmgr.datasources.get_datasources(
+        files,
+        data_source_type=dmgr.datasources.ContextDataSource,
+        context_size=5,
         preprocessors=[dmgr.preprocessing.DataWhitener(),
                        dmgr.preprocessing.MaxNorm()]
     )

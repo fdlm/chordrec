@@ -132,88 +132,22 @@ def write_chord_predictions(filename, predictions, fps):
                       for p in predictions_to_chord_label(predictions, fps)])
 
 
-def compute_features(audio_file):
+def compute_features(audio_file, fps):
     """
     This function just computes the features for an audio file
     :param audio_file: audio file to compute the features for
+    :param fps: frames per second
     :return: features as numpy array (or similar)
     """
     specs = [
         mm.audio.spectrogram.LogarithmicFilteredSpectrogram(
-            audio_file, num_channels=1, fps=FPS, frame_size=ffts,
+            audio_file, num_channels=1, fps=fps, frame_size=ffts,
             num_bands=24, fmax=5500,
             unique_filters=False)
         for ffts in [8192]
     ]
 
     return np.hstack(specs).astype(np.float32)
-
-
-def get_preprocessed_datasources(files, preprocessors, **kwargs):
-    """
-    This function creates datasources with given preprocessors given
-    a files dictionary. The dictionary looks as follows:
-
-    {'train': {'feat': [train feature files],
-               'targ': [train targets files]}
-     'val': {'feat': [validation feature files],
-             'targ': [validation target files]},
-     'test': {'feat': [test feature files],
-             'targ': [test target files]}
-    }
-
-    The preprocessors are trained on the training data.
-
-    :param files:         file dictionary with the aforementioned format
-    :param preprocessors: list of preprocessors to be applied to the data
-    :param kwargs:        additional arguments to be passed to
-                          AggregatedDataSource.from_files
-    :return:              tuple of train data source, validation data source
-                          and test data source
-    """
-    train_set = dmgr.datasources.AggregatedDataSource.from_files(
-        files['train']['feat'], files['train']['targ'], memory_mapped=True,
-        preprocessors=preprocessors,
-        **kwargs
-    )
-
-    val_set = dmgr.datasources.AggregatedDataSource.from_files(
-        files['val']['feat'], files['val']['targ'], memory_mapped=True,
-        preprocessors=preprocessors,
-        **kwargs
-    )
-
-    test_set = dmgr.datasources.AggregatedDataSource.from_files(
-        files['test']['feat'], files['test']['targ'], memory_mapped=True,
-        preprocessors=preprocessors,
-        **kwargs
-    )
-
-    for p in preprocessors:
-        p.train(train_set)
-
-    return train_set, val_set, test_set
-
-
-def get_preprocessed_context_datasources(files, preprocessors, context_size,
-                                         **kwargs):
-    """
-    Convenience function that creates context data sources based on
-    get_preprocessed_datasources.
-    :param files:         file dictionary with the aforementioned format
-    :param preprocessors: list of preprocessors to be applied to the data
-    :param context_size:  context size in each direction
-    :param kwargs:        additional arguments to be passed to
-                          AggregatedDataSource.from_files
-    :return:              tuple of train data source, validation data source
-                          and test data source
-    """
-    return get_preprocessed_datasources(
-        files, preprocessors,
-        data_source_type=dmgr.datasources.ContextDataSource,
-        context_size=context_size,
-        **kwargs
-    )
 
 
 def combine_files(*args):
