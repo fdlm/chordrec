@@ -32,8 +32,10 @@ def compute_targets(target_file, num_frames, fps):
     flat = map(lambda v: (v[0] + 'b', (v[1] - 1) % 12), natural)
 
     # 'no chord' is coded as 'N'. The class ID of 'N' is 24, after all major
-    # and minor chords
-    root_note_map = dict(natural + sharp + flat + [('N', 24)])
+    # and minor chords. Sometimes there is also an 'X' annotation, meaning
+    # that the chord cannot be properly determined on beat-lebel (too much
+    # going on in the audio). We will treat this also as 'no chord'
+    root_note_map = dict(natural + sharp + flat + [('N', 24), ('X', 24)])
 
     # then, we load the annotations, map the chords to class ids, and finally
     # map class ids to a one-hot encoding. first, map the root notes.
@@ -83,7 +85,15 @@ def compute_targets(target_file, num_frames, fps):
     end = np.hstack((start_ann[0], end_ann, [np.inf]))
 
     # Finally, we create the one-hot encoding per frame!
-    frame_times = np.arange(num_frames) * (1. / fps)
+    frame_times = np.arange(num_frames, dtype=np.float) / fps
+
+    # IMPORTANT: round everything to milliseconds to prevent errors caused
+    # by floating point hell. Ideally, we would round everything to
+    # possible *frame times*, but it is easier this way.
+    start = np.round(start, decimals=3)
+    end = np.round(end, decimals=3)
+    frame_times = np.round(frame_times, decimals=3)
+
     target_per_frame = ((start <= frame_times[:, np.newaxis]) &
                         (frame_times[:, np.newaxis] < end))
 
@@ -205,6 +215,21 @@ def load_robbie_dataset(data_dir=DATA_DIR, feature_cache_dir=CACHE_DIR):
         os.path.join(data_dir, 'robbie_williams'),
         os.path.join(feature_cache_dir, 'robbie_williams'),
         [os.path.join(data_dir, 'robbie_williams', 'splits',
+                      '8-fold_cv_random_{}.fold'.format(f))
+         for f in range(8)],
+        source_ext=SRC_EXT,
+        gt_ext=GT_EXT,
+        compute_features=compute_features,
+        compute_targets=compute_targets,
+        fps=FPS
+    )
+
+
+def load_billboard_dataset(data_dir=DATA_DIR, feature_cache_dir=CACHE_DIR):
+    return dmgr.Dataset(
+        os.path.join(data_dir, 'mcgill-billboard', 'unique'),
+        os.path.join(feature_cache_dir, 'mcgill-billboard',),
+        [os.path.join(data_dir, 'mcgill-billboard', 'splits',
                       '8-fold_cv_random_{}.fold'.format(f))
          for f in range(8)],
         source_ext=SRC_EXT,
