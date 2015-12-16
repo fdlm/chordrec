@@ -18,9 +18,9 @@ def stack_layers(feature_var, feature_shape, batch_size, out_size):
 
     nl = lnn.nonlinearities.rectify
 
-    net = lnn.layers.DenseLayer(net, num_units=128, nonlinearity=nl)
+    net = lnn.layers.DenseLayer(net, num_units=256, nonlinearity=nl)
     net = lnn.layers.DropoutLayer(net, p=0.5)
-    net = lnn.layers.DenseLayer(net, num_units=128, nonlinearity=nl)
+    net = lnn.layers.DenseLayer(net, num_units=256, nonlinearity=nl)
     net = lnn.layers.DropoutLayer(net, p=0.5)
 
     # output layer
@@ -44,11 +44,11 @@ def build_net(feature_shape, batch_size, out_size):
     prediction = lnn.layers.get_output(network)
 
     l2_penalty = lnn.regularization.regularize_network_params(
-        network, lnn.regularization.l2) * 1e-4
+        network, lnn.regularization.l2) * 0
     loss = compute_loss(prediction, target_var) + l2_penalty
 
     params = lnn.layers.get_all_params(network, trainable=True)
-    updates = lnn.updates.adam(loss, params, learning_rate=0.001)
+    updates = lnn.updates.adam(loss, params, learning_rate=0.0001)
 
     # max norm constraint on weights
     all_non_bias_params = lnn.layers.get_all_params(network, trainable=True,
@@ -71,18 +71,24 @@ def build_net(feature_shape, batch_size, out_size):
     return nn.NeuralNetwork(network, train, test, process)
 
 
-BATCH_SIZE = 1024
+BATCH_SIZE = 512
 
 
 def main():
 
     print(Colors.red('Loading data...\n'))
 
+    # load all data sets
     mirex09 = data.load_mirex09_dataset()
     billboard = data.load_billboard_dataset()
+    robbie = data.load_robbie_dataset()
+
+    # use fold 0 for validation, fold 1 for test
+
     files = data.combine_files(
-        mirex09.get_rand_split(),
-        billboard.get_rand_split(val_perc=0., test_perc=0.)
+        mirex09.get_fold_split(),
+        billboard.get_fold_split(),
+        robbie.get_fold_split(),
     )
 
     train_set, val_set, test_set = dmgr.datasources.get_datasources(
@@ -118,7 +124,7 @@ def main():
     best_params = nn.train(
         neural_net, train_set, n_epochs=100, batch_size=BATCH_SIZE,
         validation_set=val_set, early_stop=10,
-        threaded=5
+        threaded=10
     )
 
     print(Colors.red('\nStarting testing...\n'))
@@ -132,7 +138,8 @@ def main():
     print(Colors.red('\nResults:\n'))
 
     test_gt_files = dmgr.files.match_files(
-        pred_files, mirex09.gt_files, test.PREDICTION_EXT, data.GT_EXT
+        pred_files, mirex09.gt_files + billboard.gt_files + robbie.gt_files,
+        test.PREDICTION_EXT, data.GT_EXT
     )
 
     test.print_scores(test.compute_average_scores(test_gt_files, pred_files))

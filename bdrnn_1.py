@@ -121,11 +121,16 @@ def main():
 
     print(Colors.red('Loading data...\n'))
 
+    # load all data sets
     mirex09 = data.load_mirex09_dataset()
     billboard = data.load_billboard_dataset()
+    robbie = data.load_robbie_dataset()
+
+    # use fold 0 for validation, fold 1 for test
     files = data.combine_files(
-        mirex09.get_rand_split(),
-        billboard.get_rand_split(val_perc=0., test_perc=0.)
+        mirex09.get_fold_split(),
+        billboard.get_fold_split(),
+        robbie.get_fold_split(),
     )
 
     train_set, val_set, test_set = dmgr.datasources.get_datasources(
