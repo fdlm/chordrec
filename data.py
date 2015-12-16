@@ -6,7 +6,7 @@ import numpy as np
 import madmom as mm
 import dmgr
 
-FPS = 20
+FPS = 10
 DATA_DIR = 'data'
 CACHE_DIR = 'feature_cache'
 SRC_EXT = '.flac'
@@ -149,10 +149,13 @@ def compute_features(audio_file, fps):
     :param fps: frames per second
     :return: features as numpy array (or similar)
     """
+
+    # do not resample because ffmpeg/avconv creates terrible sampling
+    # artifacts
     specs = [
         mm.audio.spectrogram.LogarithmicFilteredSpectrogram(
-            audio_file, num_channels=1, fps=fps, frame_size=ffts,
-            num_bands=24, fmax=5500,
+            audio_file, num_channels=1, sample_rate=44100, fps=fps,
+            frame_size=ffts, num_bands=24, fmax=5500,
             unique_filters=False)
         for ffts in [8192]
     ]
@@ -201,7 +204,9 @@ def load_mirex09_dataset(data_dir=DATA_DIR, feature_cache_dir=CACHE_DIR):
     return dmgr.Dataset(
         os.path.join(data_dir, 'chords_mirex09'),
         os.path.join(feature_cache_dir, 'chords_mirex09'),
-        None,
+        [os.path.join(data_dir, 'chords_mirex09', 'splits',
+                      '8-fold_cv_random_{}.fold'.format(f))
+         for f in range(8)],
         source_ext=SRC_EXT,
         gt_ext=GT_EXT,
         compute_features=compute_features,
