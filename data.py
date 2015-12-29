@@ -243,3 +243,31 @@ def load_billboard_dataset(data_dir=DATA_DIR, feature_cache_dir=CACHE_DIR):
         compute_targets=compute_targets,
         fps=FPS
     )
+
+
+def load_datasets(beatles=True, mirex09=False, robbie=False, billboard=False,
+                  data_dir=DATA_DIR, feature_cache_dir=CACHE_DIR, **kwargs):
+
+    assert beatles or mirex09 or robbie or billboard,\
+        'Must load at least one dataset'
+
+    datasets = []
+
+    if beatles:
+        datasets.append(load_beatles_dataset(data_dir, feature_cache_dir))
+    if mirex09:
+        import warnings
+        warnings.warn('The MIREX09 datasets contains severe errors!')
+        datasets.append(load_mirex09_dataset(data_dir, feature_cache_dir))
+    if robbie:
+        datasets.append(load_robbie_dataset(data_dir, feature_cache_dir))
+    if billboard:
+        datasets.append(load_billboard_dataset(data_dir, feature_cache_dir))
+
+    # uses fold 0 for validation, fold 1 for test, rest for training
+    train, val, test = dmgr.datasources.get_datasources(
+        combine_files(*[ds.get_fold_split() for ds in datasets]),
+        **kwargs
+    )
+
+    return train, val, test, sum((ds.gt_files for ds in datasets), [])

@@ -106,14 +106,12 @@ def main():
 
     print(Colors.red('Loading data...\n'))
 
-    beatles = data.load_beatles_dataset()
-    files = beatles.get_fold_split()
-    train_set, val_set, test_set = dmgr.datasources.get_datasources(
-        files,
-        data_source_type=dmgr.datasources.ContextDataSource,
-        context_size=5,
+    # load all data sets
+    train_set, val_set, test_set, gt_files = data.load_datasets(
         preprocessors=[dmgr.preprocessing.DataWhitener(),
-                       dmgr.preprocessing.MaxNorm()]
+                       dmgr.preprocessing.MaxNorm()],
+        data_source_type=dmgr.datasources.ContextDataSource,
+        context_size=5
     )
 
     print(Colors.blue('Train Set:'))
@@ -158,7 +156,7 @@ def main():
     print(Colors.red('\nResults:\n'))
 
     test_gt_files = dmgr.files.match_files(
-        pred_files, beatles.gt_files, test.PREDICTION_EXT, data.GT_EXT
+        pred_files, gt_files, test.PREDICTION_EXT, data.GT_EXT
     )
 
     test.print_scores(test.compute_average_scores(test_gt_files, pred_files))

@@ -80,21 +80,9 @@ def main():
     print(Colors.red('Loading data...\n'))
 
     # load all data sets
-    mirex09 = data.load_mirex09_dataset()
-    billboard = data.load_billboard_dataset()
-    robbie = data.load_robbie_dataset()
-
-    # use fold 0 for validation, fold 1 for test
-
-    files = data.combine_files(
-        mirex09.get_fold_split(),
-        billboard.get_fold_split(),
-        robbie.get_fold_split(),
-    )
-
-    train_set, val_set, test_set = dmgr.datasources.get_datasources(
-        files, preprocessors=[dmgr.preprocessing.DataWhitener(),
-                              dmgr.preprocessing.MaxNorm()]
+    train_set, val_set, test_set, gt_files = data.load_datasets(
+        preprocessors=[dmgr.preprocessing.DataWhitener(),
+                       dmgr.preprocessing.MaxNorm()],
     )
 
     print(Colors.blue('Train Set:'))
@@ -139,7 +127,7 @@ def main():
     print(Colors.red('\nResults:\n'))
 
     test_gt_files = dmgr.files.match_files(
-        pred_files, mirex09.gt_files + billboard.gt_files + robbie.gt_files,
+        pred_files, gt_files,
         test.PREDICTION_EXT, data.GT_EXT
     )
 
