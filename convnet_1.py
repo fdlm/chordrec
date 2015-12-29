@@ -1,4 +1,5 @@
 from __future__ import print_function
+import os
 import theano
 import theano.tensor as tt
 import lasagne as lnn
@@ -148,7 +149,7 @@ def main():
 
     print(Colors.red('\nStarting testing...\n'))
 
-    dest_dir = './results/convnet_1'
+    dest_dir = os.path.join('results', os.path.splitext(__file__)[0])
     neural_net.set_parameters(best_params)
     pred_files = test.compute_labeling(neural_net, test_set, dest_dir=dest_dir,
                                        rnn=False)

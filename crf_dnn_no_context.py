@@ -1,4 +1,5 @@
 from __future__ import print_function
+import os
 import theano
 import theano.tensor as tt
 import lasagne as lnn
@@ -141,7 +142,7 @@ def main():
 
     test_neural_net.set_parameters(best_params)
 
-    dest_dir = './results/crf_rnn'
+    dest_dir = os.path.join('results', os.path.splitext(__file__)[0])
     pred_files = test.compute_labeling(test_neural_net, test_set,
                                        dest_dir=dest_dir,
                                        rnn=True, out_onehot=False)
