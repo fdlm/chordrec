@@ -26,30 +26,33 @@ def stack_layers(feature_var, mask_var, feature_shape, batch_size, max_seq_len,
                                     shape=(batch_size, max_seq_len))
 
     # Dense layer between input and CRF
-    n_dense_units = 128
-    net = lnn.layers.ReshapeLayer(net, (-1, n_dense_units),
+    n_dense_units = 100
+    net = lnn.layers.ReshapeLayer(net, (-1,) + feature_shape,
                                   name='reshape to single')
     net = lnn.layers.DenseLayer(net, num_units=n_dense_units)
+    net = lnn.layers.DropoutLayer(net, p=0.2)
+    net = lnn.layers.DenseLayer(net, num_units=n_dense_units)
+    net = lnn.layers.DropoutLayer(net, p=0.2)
     net = lnn.layers.ReshapeLayer(net, (true_batch_size,
                                         true_seq_len, n_dense_units),
                                   name='reshape back to sequence')
 
     # CRF
-    n_classes = 25
-    crf = spg.layers.CrfLayer(incoming=net, num_states=n_classes, name='CRF')
+    crf = spg.layers.CrfLayer(incoming=net, mask_input=mask_in,
+                              num_states=out_size, name='CRF')
 
     return crf
 
 
 def compute_loss(network, target, mask):
-    loss = spg.objectives.neg_log_likelihood(network, target)
-    return lnn.objectives.aggregate(loss, mask, mode='normalized_sum')
+    loss = spg.objectives.neg_log_likelihood(network, target, mask)
+    return lnn.objectives.aggregate(loss, mode='mean')
 
 
 def build_net(feature_shape, batch_size, max_seq_len, out_size):
     # create the network
     feature_var = tt.tensor3('feature_input', dtype='float32')
-    target_var = tt.tensor3('target_output', dtype='int32')
+    target_var = tt.tensor3('target_output', dtype='float32')
     mask_var = tt.matrix('mask_input', dtype='float32')
 
     network = stack_layers(feature_var, mask_var,
@@ -57,12 +60,12 @@ def build_net(feature_shape, batch_size, max_seq_len, out_size):
 
     # create train function - this one uses the log-likelihood objective
     weight_decay = lnn.regularization.regularize_network_params(
-        network, lnn.regularization.l2) * 1e-6
+        network, lnn.regularization.l2) * 1e-5
 
     loss = compute_loss(network, target_var, mask_var) + weight_decay
 
     params = lnn.layers.get_all_params(network, trainable=True)
-    updates = lnn.updates.nesterov_momentum(loss, params, learning_rate=0.001)
+    updates = lnn.updates.adam(loss, params, learning_rate=0.01)
     train = theano.function([feature_var, mask_var, target_var], loss,
                             updates=updates)
 
@@ -118,7 +121,7 @@ def main():
     print(Colors.red('Starting training...\n'))
 
     best_params = nn.train(
-        train_neural_net, train_set, n_epochs=100, batch_size=BATCH_SIZE,
+        train_neural_net, train_set, n_epochs=500, batch_size=BATCH_SIZE,
         validation_set=val_set, early_stop=20,
         batch_iterator=dmgr.iterators.iterate_datasources,
         sequence_length=MAX_SEQ_LEN
@@ -141,7 +144,7 @@ def main():
     dest_dir = './results/crf_rnn'
     pred_files = test.compute_labeling(test_neural_net, test_set,
                                        dest_dir=dest_dir,
-                                       rnn=True)
+                                       rnn=True, out_onehot=False)
     print('\tWrote chord predictions to {}.'.format(dest_dir))
 
     print(Colors.red('\nResults:\n'))
