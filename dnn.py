@@ -19,7 +19,7 @@ def stack_layers(feature_var, feature_shape, batch_size, out_size):
 
     nl = lnn.nonlinearities.rectify
 
-    num_units = 100
+    num_units = 256
 
     net = lnn.layers.DenseLayer(net, num_units=num_units, nonlinearity=nl)
     net = lnn.layers.DropoutLayer(net, p=0.5)
@@ -117,8 +117,8 @@ def main():
     print(Colors.red('Starting training...\n'))
 
     best_params = nn.train(
-        neural_net, train_set, n_epochs=100, batch_size=BATCH_SIZE,
-        validation_set=val_set, early_stop=10,
+        neural_net, train_set, n_epochs=500, batch_size=BATCH_SIZE,
+        validation_set=val_set, early_stop=20,
         threaded=5
     )
 

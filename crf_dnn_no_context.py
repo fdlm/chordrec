@@ -27,13 +27,15 @@ def stack_layers(feature_var, mask_var, feature_shape, batch_size, max_seq_len,
                                     shape=(batch_size, max_seq_len))
 
     # Dense layer between input and CRF
-    n_dense_units = 100
+    n_dense_units = 256
     net = lnn.layers.ReshapeLayer(net, (-1,) + feature_shape,
                                   name='reshape to single')
     net = lnn.layers.DenseLayer(net, num_units=n_dense_units)
-    net = lnn.layers.DropoutLayer(net, p=0.2)
+    net = lnn.layers.DropoutLayer(net, p=0.5)
     net = lnn.layers.DenseLayer(net, num_units=n_dense_units)
-    net = lnn.layers.DropoutLayer(net, p=0.2)
+    net = lnn.layers.DropoutLayer(net, p=0.5)
+    net = lnn.layers.DenseLayer(net, num_units=n_dense_units)
+    net = lnn.layers.DropoutLayer(net, p=0.5)
     net = lnn.layers.ReshapeLayer(net, (true_batch_size,
                                         true_seq_len, n_dense_units),
                                   name='reshape back to sequence')
@@ -47,7 +49,7 @@ def stack_layers(feature_var, mask_var, feature_shape, batch_size, max_seq_len,
 
 def compute_loss(network, target, mask):
     loss = spg.objectives.neg_log_likelihood(network, target, mask)
-    return lnn.objectives.aggregate(loss, mode='mean')
+    return lnn.objectives.aggregate(loss, mode='sum') / mask.sum()
 
 
 def build_net(feature_shape, batch_size, max_seq_len, out_size):
@@ -80,8 +82,8 @@ def build_net(feature_shape, batch_size, max_seq_len, out_size):
     return nn.NeuralNetwork(network, train, test, process)
 
 
-BATCH_SIZE = 32
-MAX_SEQ_LEN = 4096
+BATCH_SIZE = 64
+MAX_SEQ_LEN = 1024
 
 
 def main():

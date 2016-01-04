@@ -38,7 +38,7 @@ def compute_loss(prediction, target):
 def build_net(feature_shape, batch_size, out_size):
     # create the network
     feature_var = tt.matrix('feature_input', dtype='float32')
-    target_var = tt.matrix('target_output', dtype='int32')
+    target_var = tt.matrix('target_output', dtype='float32')
     network = stack_layers(feature_var, feature_shape, batch_size, out_size)
 
     # create train function
@@ -111,8 +111,8 @@ def main():
     print(Colors.red('Starting training...\n'))
 
     best_params = nn.train(
-        neural_net, train_set, n_epochs=100, batch_size=BATCH_SIZE,
-        validation_set=val_set, early_stop=10,
+        neural_net, train_set, n_epochs=500, batch_size=BATCH_SIZE,
+        validation_set=val_set, early_stop=20,
         threaded=10
     )
 

@@ -34,7 +34,7 @@ def stack_layers(feature_var, mask_var, feature_shape, batch_size, max_seq_len,
 
 def compute_loss(network, target, mask):
     loss = spg.objectives.neg_log_likelihood(network, target, mask)
-    return lnn.objectives.aggregate(loss, mode='mean')
+    return lnn.objectives.aggregate(loss, mode='sum') / mask.sum()
 
 
 def build_net(feature_shape, batch_size, max_seq_len, out_size):
@@ -67,8 +67,8 @@ def build_net(feature_shape, batch_size, max_seq_len, out_size):
     return nn.NeuralNetwork(network, train, test, process)
 
 
-BATCH_SIZE = 32
-MAX_SEQ_LEN = 4096
+BATCH_SIZE = 256
+MAX_SEQ_LEN = 1024
 
 
 def main():
@@ -107,12 +107,16 @@ def main():
 
     print(Colors.red('Starting training...\n'))
 
+    # train_neural_net.load_parameters('crf_params.pkl')
+
     best_params = nn.train(
         train_neural_net, train_set, n_epochs=500, batch_size=BATCH_SIZE,
         validation_set=val_set, early_stop=20,
         batch_iterator=dmgr.iterators.iterate_datasources,
         sequence_length=MAX_SEQ_LEN
     )
+
+    # train_neural_net.save_parameters('crf_params.pkl')
 
     print(Colors.red('\nStarting testing...\n'))
 
