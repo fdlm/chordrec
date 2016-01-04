@@ -101,7 +101,7 @@ def compute_targets(target_file, num_frames, fps):
     assert (target_per_frame.sum(axis=1) == 1).all()
 
     # create the one hot vectors per frame
-    return one_hot[np.nonzero(target_per_frame)[1]]
+    return one_hot[np.nonzero(target_per_frame)[1]].astype(np.float32)
 
 
 def predictions_to_chord_label(predictions, fps):
