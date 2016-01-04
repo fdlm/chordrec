@@ -157,7 +157,7 @@ def compute_features(audio_file, fps):
             audio_file, num_channels=1, sample_rate=44100, fps=fps,
             frame_size=ffts, num_bands=24, fmax=5500,
             unique_filters=False)
-        for ffts in [8192]
+        for ffts in [8192 * 2]  # corresponds to ~0.37 seconds
     ]
 
     return np.hstack(specs).astype(np.float32)
