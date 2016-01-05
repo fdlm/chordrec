@@ -34,7 +34,7 @@ def stack_layers(feature_var, mask_var, feature_shape, batch_size, max_seq_len,
 
 def compute_loss(network, target, mask):
     loss = spg.objectives.neg_log_likelihood(network, target, mask)
-    return lnn.objectives.aggregate(loss, mode='sum') / mask.sum()
+    return lnn.objectives.aggregate(loss, mode='mean')
 
 
 def build_net(feature_shape, batch_size, max_seq_len, out_size):
