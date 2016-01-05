@@ -39,7 +39,7 @@ def compute_labeling(network, agg_dataset, dest_dir, rnn,
 
         if rnn:
             data = data[np.newaxis, :]
-            mask = np.ones(data.shape[:-1], dtype=np.float32)
+            mask = np.ones(data.shape[:2], dtype=np.float32)
 
             pred = network.process(data, mask)[0]
         else:
