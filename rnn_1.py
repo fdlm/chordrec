@@ -56,14 +56,16 @@ def stack_layers(feature_var, mask_var, feature_shape, batch_size, max_seq_len,
     return net
 
 
-def compute_loss(prediction, target):
-    return lnn.objectives.categorical_crossentropy(prediction, target).mean()
+def compute_loss(prediction, target, mask):
+    loss = lnn.objectives.categorical_crossentropy(prediction, target)
+    return lnn.objectives.aggregate(loss, mask, mode='normalized_sum')
+    # return lnn.objectives.categorical_crossentropy(prediction, target).mean()
 
 
 def build_net(feature_shape, batch_size, max_seq_len, out_size):
     # create the network
     feature_var = tt.tensor3('feature_input', dtype='float32')
-    target_var = tt.tensor3('target_output', dtype='int32')
+    target_var = tt.tensor3('target_output', dtype='float32')
     mask_var = tt.matrix('mask_input', dtype='float32')
 
     network = stack_layers(feature_var, mask_var,
@@ -74,7 +76,7 @@ def build_net(feature_shape, batch_size, max_seq_len, out_size):
 
     l2_penalty = lnn.regularization.regularize_network_params(
         network, lnn.regularization.l2) * 1e-6
-    loss = compute_loss(prediction, target_var) + l2_penalty
+    loss = compute_loss(prediction, target_var, mask_var) + l2_penalty
 
     params = lnn.layers.get_all_params(network, trainable=True)
 
@@ -86,7 +88,7 @@ def build_net(feature_shape, batch_size, max_seq_len, out_size):
     # create test and process function. process just computes the prediction
     # without computing the loss, and thus does not need target labels
     test_prediction = lnn.layers.get_output(network, deterministic=True)
-    test_loss = compute_loss(test_prediction, target_var) + l2_penalty
+    test_loss = compute_loss(test_prediction, target_var, mask_var) + l2_penalty
 
     test = theano.function([feature_var, mask_var, target_var],
                            test_loss)
