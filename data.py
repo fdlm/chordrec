@@ -45,15 +45,17 @@ def compute_targets(target_file, num_frames, fps):
     chord_root_note_ids = np.array([root_note_map[crn]
                                     for crn in chord_root_notes])
 
-    # then, map the chords to major and minor. we assume everything major
-    # except when annotated as 'min' or as 'sus2' (because the 'third' in sus2
-    # is closer to a minor third... TODO: check if this makes sense at all!
+    # then, map the chords to major and minor. we assume chords with a minor
+    # third as first interval are considered minor chords,
+    # the rest are major chords, following MIREX, as stated in
+    # Taemin Cho, Juan Bello: "On the relative importance of Individual
+    # Components of Chord Recognition Systems"
 
     chord_type = [c.split(':')[1] if ':' in c else '' for c in chord_names]
 
     # we will shift the class ids for all minor notes by 12 (num major chords)
     chord_type_shift = np.array(
-        map(lambda x: 12 if 'min' in x or 'sus2' in x else 0, chord_type)
+        map(lambda x: 12 if 'min' in x or 'dim' in x else 0, chord_type)
     )
 
     # now we can compute the final chord class id
