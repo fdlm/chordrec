@@ -110,7 +110,7 @@ def predictions_to_chord_label(predictions, fps):
     natural = zip([0, 2, 3, 5, 7, 8, 10], string.uppercase[:7])
     sharp = map(lambda v: ((v[0] + 1) % 12, v[1] + '#'), natural)
 
-    semitone_to_label = dict(natural + sharp)
+    semitone_to_label = dict(sharp + natural)
 
     def pred_to_cl(pred):
         if pred == 24:
@@ -262,7 +262,7 @@ def load_billboard_dataset(data_dir=DATA_DIR, feature_cache_dir=CACHE_DIR):
     )
 
 
-def load_datasets(beatles=True, queen=False, zweieck=False, robbie=False,
+def load_datasets(beatles=True, queen=True, zweieck=True, robbie=False,
                   billboard=False, data_dir=DATA_DIR,
                   feature_cache_dir=CACHE_DIR, **kwargs):
 
