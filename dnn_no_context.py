@@ -19,10 +19,12 @@ def stack_layers(feature_var, feature_shape, batch_size, out_size):
 
     nl = lnn.nonlinearities.rectify
 
-    net = lnn.layers.DenseLayer(net, num_units=256, nonlinearity=nl)
-    net = lnn.layers.DropoutLayer(net, p=0.5)
-    net = lnn.layers.DenseLayer(net, num_units=256, nonlinearity=nl)
-    net = lnn.layers.DropoutLayer(net, p=0.5)
+    net = lnn.layers.DenseLayer(net, num_units=100, nonlinearity=nl)
+    net = lnn.layers.DropoutLayer(net, p=0.3)
+    net = lnn.layers.DenseLayer(net, num_units=100, nonlinearity=nl)
+    net = lnn.layers.DropoutLayer(net, p=0.3)
+    net = lnn.layers.DenseLayer(net, num_units=100, nonlinearity=nl)
+    net = lnn.layers.DropoutLayer(net, p=0.3)
 
     # output layer
     net = lnn.layers.DenseLayer(net, name='output', num_units=out_size,
@@ -52,11 +54,11 @@ def build_net(feature_shape, batch_size, out_size):
     updates = lnn.updates.adam(loss, params, learning_rate=0.0001)
 
     # max norm constraint on weights
-    all_non_bias_params = lnn.layers.get_all_params(network, trainable=True,
-                                                    regularizable=True)
-    for param, update in updates.iteritems():
-        if param in all_non_bias_params:
-            updates[param] = lnn.updates.norm_constraint(update, max_norm=4)
+    # all_non_bias_params = lnn.layers.get_all_params(network, trainable=True,
+    #                                                 regularizable=True)
+    # for param, update in updates.iteritems():
+    #     if param in all_non_bias_params:
+    #         updates[param] = lnn.updates.norm_constraint(update, max_norm=4)
 
     train = theano.function([feature_var, target_var], loss,
                             updates=updates)
