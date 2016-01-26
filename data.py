@@ -200,18 +200,33 @@ def load_beatles_dataset(data_dir=DATA_DIR, feature_cache_dir=CACHE_DIR):
     )
 
 
-def load_mirex09_dataset(data_dir=DATA_DIR, feature_cache_dir=CACHE_DIR):
+def load_queen_dataset(data_dir=DATA_DIR, feature_cache_dir=CACHE_DIR):
     return dmgr.Dataset(
-        os.path.join(data_dir, 'chords_mirex09'),
-        os.path.join(feature_cache_dir, 'chords_mirex09'),
-        [os.path.join(data_dir, 'chords_mirex09', 'splits',
-                      '8-fold_cv_random_{}.fold'.format(f))
-         for f in range(8)],
-        source_ext=SRC_EXT,
-        gt_ext=GT_EXT,
-        compute_features=compute_features,
-        compute_targets=compute_targets,
-        fps=FPS
+            os.path.join(data_dir, 'queen'),
+            os.path.join(feature_cache_dir, 'queen'),
+            [os.path.join(data_dir, 'queen', 'splits',
+                          '8-fold_cv_random_{}.fold'.format(f))
+             for f in range(8)],
+            source_ext=SRC_EXT,
+            gt_ext=GT_EXT,
+            compute_features=compute_features,
+            compute_targets=compute_targets,
+            fps=FPS
+    )
+
+
+def load_zweieck_dataset(data_dir=DATA_DIR, feature_cache_dir=CACHE_DIR):
+    return dmgr.Dataset(
+            os.path.join(data_dir, 'zweieck'),
+            os.path.join(feature_cache_dir, 'zweieck'),
+            [os.path.join(data_dir, 'zweieck', 'splits',
+                          '8-fold_cv_random_{}.fold'.format(f))
+             for f in range(8)],
+            source_ext=SRC_EXT,
+            gt_ext=GT_EXT,
+            compute_features=compute_features,
+            compute_targets=compute_targets,
+            fps=FPS
     )
 
 
@@ -245,20 +260,21 @@ def load_billboard_dataset(data_dir=DATA_DIR, feature_cache_dir=CACHE_DIR):
     )
 
 
-def load_datasets(beatles=True, mirex09=False, robbie=False, billboard=False,
-                  data_dir=DATA_DIR, feature_cache_dir=CACHE_DIR, **kwargs):
+def load_datasets(beatles=True, queen=False, zweieck=False, robbie=False,
+                  billboard=False, data_dir=DATA_DIR,
+                  feature_cache_dir=CACHE_DIR, **kwargs):
 
-    assert beatles or mirex09 or robbie or billboard,\
-        'Must load at least one dataset'
+    assert beatles or queen or zweieck or robbie or billboard, \
+        "Load at least one dataset"
 
     datasets = []
 
     if beatles:
         datasets.append(load_beatles_dataset(data_dir, feature_cache_dir))
-    if mirex09:
-        import warnings
-        warnings.warn('The MIREX09 datasets contains severe errors!')
-        datasets.append(load_mirex09_dataset(data_dir, feature_cache_dir))
+    if queen:
+        datasets.append(load_queen_dataset(data_dir, feature_cache_dir))
+    if zweieck:
+        datasets.append(load_zweieck_dataset(data_dir, feature_cache_dir))
     if robbie:
         datasets.append(load_robbie_dataset(data_dir, feature_cache_dir))
     if billboard:
