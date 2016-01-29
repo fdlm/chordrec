@@ -6,14 +6,25 @@ import numpy as np
 import madmom as mm
 import dmgr
 
-FPS = 10
 DATA_DIR = 'data'
 CACHE_DIR = 'feature_cache'
 SRC_EXT = '.flac'
 GT_EXT = '.chords'
 
+# Feature extraction parameters for LFS
+LFS_FPS = 10
+LFS_NUM_BANDS = 24
+LFS_FMAX = 5500
+LFS_FFTS = [8192 * 2]  # corresponds to ~0.37 seconds
+LFS_UNIQUE_FILTERS = False
 
-def compute_targets(target_file, num_frames, fps):
+# Feature extraction parameters for CQT
+CQ_FPS = 0.10  # corresponds to hop length of 4480
+CQ_N_BINS = 178
+CQ_BINS_PER_OCT = 24
+
+
+def chords_maj_min(target_file, num_frames, fps):
     """
     Creates one-hot encodings from a chord annotation file. Right now,
     chords are mapped to major/minor, resulting in 24 chord classes and one
@@ -144,25 +155,86 @@ def write_chord_predictions(filename, predictions, fps):
                       for p in predictions_to_chord_label(predictions, fps)])
 
 
-def compute_features(audio_file, fps):
-    """
-    This function just computes the features for an audio file
-    :param audio_file: audio file to compute the features for
-    :param fps: frames per second
-    :return: features as numpy array (or similar)
-    """
+class ConstantQ:
 
-    # do not resample because ffmpeg/avconv creates terrible sampling
-    # artifacts
-    specs = [
-        mm.audio.spectrogram.LogarithmicFilteredSpectrogram(
-            audio_file, num_channels=1, sample_rate=44100, fps=fps,
-            frame_size=ffts, num_bands=24, fmax=5500,
-            unique_filters=False)
-        for ffts in [8192 * 2]  # corresponds to ~0.37 seconds
-    ]
+    def __init__(self, align='c', num_bands=24, fmin=30, num_octaves=8,
+                 fps=10, sample_rate=44100):
 
-    return np.hstack(specs).astype(np.float32)
+        self.fps = fps
+        self.num_bands = num_bands
+        self.align = align
+        self.fmin = fmin
+        self.num_octaves = num_octaves
+
+        self.sample_rate = sample_rate
+
+        from yaafelib import FeaturePlan, Engine
+
+        fp = FeaturePlan(sample_rate=sample_rate)
+
+        cqt_config = " ".join(['cqt: CQT',
+                               'CQTAlign={}'.format(align),
+                               'CQTBinsPerOctave={}'.format(num_bands),
+                               'CQTMinFreq={}'.format(fmin),
+                               'CQTNbOctaves={}'.format(num_octaves),
+                               'stepSize={}'.format(sample_rate / fps)
+                               ])
+
+        fp.addFeature(cqt_config)
+
+        df = fp.getDataFlow()
+        self.engine = Engine()
+        self.engine.load(df)
+
+    @property
+    def name(self):
+        return 'cqt_fps={}_num-bands={}_align={}_fmin={}_num_oct={}'.format(
+            self.fps, self.num_bands, self.align, self.fmin, self.num_octaves
+        )
+
+    def __call__(self, audio_file, fps):
+
+        assert self.fps == fps
+
+        audio = mm.audio.signal.Signal(audio_file,
+                                       sample_rate=self.sample_rate,
+                                       num_channels=1).astype(np.float64)
+
+        cqt = self.engine.processAudio(audio.reshape((1, -1)))['cqt']
+        return cqt.astype(np.float32)
+
+
+class LogFiltSpec:
+
+    def __init__(self, frame_sizes=LFS_FFTS, num_bands=LFS_NUM_BANDS,
+                 fmax=LFS_FMAX, fps=LFS_FPS, sample_rate=44100):
+
+        self.frame_sizes = frame_sizes
+        self.num_bands = num_bands
+        self.fmax = fmax
+        self.fps = fps
+        self.sample_rate = sample_rate
+
+    @property
+    def name(self):
+        return 'lfs_fps={}_num-bands={}_fmax={}_frame_sizes=[{}]'.format(
+            self.fps, self.num_bands, self.fmax,
+            '-'.join(map(str, self.frame_sizes))
+        )
+
+    def __call__(self, audio_file):
+        # do not resample because ffmpeg/avconv creates terrible sampling
+        # artifacts
+        specs = [
+            mm.audio.spectrogram.LogarithmicFilteredSpectrogram(
+                    audio_file, num_channels=1, sample_rate=44100,
+                    fps=self.fps, frame_size=ffts,
+                    num_bands=self.num_bands, fmax=self.fmax,
+                    unique_filters=LFS_UNIQUE_FILTERS)
+            for ffts in self.frame_sizes
+        ]
+
+        return np.hstack(specs).astype(np.float32)
 
 
 def combine_files(*args):
@@ -187,100 +259,66 @@ def combine_files(*args):
     return combined
 
 
-def load_beatles_dataset(data_dir=DATA_DIR, feature_cache_dir=CACHE_DIR):
+DATASET_DEFS = {
+    'beatles': {
+        'data_dir': 'beatles',
+        'split_filename': '8-fold_cv_album_distributed_{}.fold'
+    },
+    'queen': {
+        'data_dir': 'queen',
+        'split_filename': '8-fold_cv_random_{}.fold'
+    },
+    'zweieck': {
+        'data_dir': 'zweieck',
+        'split_filename': '8-fold_cv_random_{}.fold'
+    },
+    'robbie_williams': {
+        'data_dir': 'robbie_williams',
+        'split_filename': '8-fold_cv_random_{}.fold'
+    },
+    'billboard': {
+        'data_dir': os.path.join('mcgill-billboard', 'unique'),
+        'split_filename': '8-fold_cv_random_{}.fold'
+    }
+}
+
+
+def load_dataset(name, data_dir=DATA_DIR, feature_cache_dir=CACHE_DIR,
+                 compute_features=LogFiltSpec(),
+                 compute_targets=chords_maj_min,
+                 fps=LFS_FPS):
+
+    assert name in DATASET_DEFS.keys(), 'Unknown dataset {}'.format(name)
+
+    data_dir = os.path.join(data_dir, DATASET_DEFS[name]['data_dir'])
+    split_filename = os.path.join(data_dir, 'splits',
+                                  DATASET_DEFS[name]['split_filename'])
+
     return dmgr.Dataset(
-        os.path.join(data_dir, 'beatles'),
-        os.path.join(feature_cache_dir, 'beatles'),
-        [os.path.join(data_dir, 'beatles', 'splits',
-                      '8-fold_cv_album_distributed_{}.fold'.format(f))
-         for f in range(8)],
+        data_dir,
+        os.path.join(feature_cache_dir, name),
+        [split_filename.format(f) for f in range(8)],
         source_ext=SRC_EXT,
         gt_ext=GT_EXT,
         compute_features=compute_features,
         compute_targets=compute_targets,
-        fps=FPS
+        fps=fps
     )
 
 
-def load_queen_dataset(data_dir=DATA_DIR, feature_cache_dir=CACHE_DIR):
-    return dmgr.Dataset(
-            os.path.join(data_dir, 'queen'),
-            os.path.join(feature_cache_dir, 'queen'),
-            [os.path.join(data_dir, 'queen', 'splits',
-                          '8-fold_cv_random_{}.fold'.format(f))
-             for f in range(8)],
-            source_ext=SRC_EXT,
-            gt_ext=GT_EXT,
-            compute_features=compute_features,
-            compute_targets=compute_targets,
-            fps=FPS
-    )
+def load_datasets(dataset_names=None, data_dir=DATA_DIR,
+                  feature_cache_dir=CACHE_DIR,
+                  compute_features=LogFiltSpec(),
+                  compute_targets=chords_maj_min,
+                  fps=LFS_FPS,
+                  **kwargs):
 
+    dataset_names = dataset_names or ['beatles', 'queen', 'zweieck']
 
-def load_zweieck_dataset(data_dir=DATA_DIR, feature_cache_dir=CACHE_DIR):
-    return dmgr.Dataset(
-            os.path.join(data_dir, 'zweieck'),
-            os.path.join(feature_cache_dir, 'zweieck'),
-            [os.path.join(data_dir, 'zweieck', 'splits',
-                          '8-fold_cv_random_{}.fold'.format(f))
-             for f in range(8)],
-            source_ext=SRC_EXT,
-            gt_ext=GT_EXT,
-            compute_features=compute_features,
-            compute_targets=compute_targets,
-            fps=FPS
-    )
-
-
-def load_robbie_dataset(data_dir=DATA_DIR, feature_cache_dir=CACHE_DIR):
-    return dmgr.Dataset(
-        os.path.join(data_dir, 'robbie_williams'),
-        os.path.join(feature_cache_dir, 'robbie_williams'),
-        [os.path.join(data_dir, 'robbie_williams', 'splits',
-                      '8-fold_cv_random_{}.fold'.format(f))
-         for f in range(8)],
-        source_ext=SRC_EXT,
-        gt_ext=GT_EXT,
-        compute_features=compute_features,
-        compute_targets=compute_targets,
-        fps=FPS
-    )
-
-
-def load_billboard_dataset(data_dir=DATA_DIR, feature_cache_dir=CACHE_DIR):
-    return dmgr.Dataset(
-        os.path.join(data_dir, 'mcgill-billboard', 'unique'),
-        os.path.join(feature_cache_dir, 'mcgill-billboard',),
-        [os.path.join(data_dir, 'mcgill-billboard', 'splits',
-                      '8-fold_cv_random_{}.fold'.format(f))
-         for f in range(8)],
-        source_ext=SRC_EXT,
-        gt_ext=GT_EXT,
-        compute_features=compute_features,
-        compute_targets=compute_targets,
-        fps=FPS
-    )
-
-
-def load_datasets(beatles=True, queen=True, zweieck=True, robbie=False,
-                  billboard=False, data_dir=DATA_DIR,
-                  feature_cache_dir=CACHE_DIR, **kwargs):
-
-    assert beatles or queen or zweieck or robbie or billboard, \
-        "Load at least one dataset"
-
-    datasets = []
-
-    if beatles:
-        datasets.append(load_beatles_dataset(data_dir, feature_cache_dir))
-    if queen:
-        datasets.append(load_queen_dataset(data_dir, feature_cache_dir))
-    if zweieck:
-        datasets.append(load_zweieck_dataset(data_dir, feature_cache_dir))
-    if robbie:
-        datasets.append(load_robbie_dataset(data_dir, feature_cache_dir))
-    if billboard:
-        datasets.append(load_billboard_dataset(data_dir, feature_cache_dir))
+    # load all datasets
+    datasets = [load_dataset(name, data_dir, feature_cache_dir,
+                             compute_features, compute_targets, fps)
+                for name in dataset_names]
 
     # uses fold 0 for validation, fold 1 for test, rest for training
     train, val, test = dmgr.datasources.get_datasources(
