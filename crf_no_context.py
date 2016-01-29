@@ -4,6 +4,7 @@ import theano
 import theano.tensor as tt
 import lasagne as lnn
 import spaghetti as spg
+import madmom as mm
 
 import nn
 import dmgr
@@ -11,6 +12,7 @@ import data
 import test
 
 from nn.utils import Colors
+from plotting import CrfPlotter
 
 
 def stack_layers(feature_var, mask_var, feature_shape, batch_size, max_seq_len,
@@ -75,10 +77,12 @@ def main():
 
     print(Colors.red('Loading data...\n'))
 
+    feature_computer = data.LogFiltSpec()
     # Load data sets
     train_set, val_set, test_set, gt_files = data.load_datasets(
         preprocessors=[dmgr.preprocessing.DataWhitener(),
                        dmgr.preprocessing.MaxNorm()],
+        compute_features=feature_computer
     )
 
     print(Colors.blue('Train Set:'))
@@ -109,12 +113,20 @@ def main():
 
     # train_neural_net.load_parameters('crf_params.pkl')
 
+    pltr = CrfPlotter(
+        train_neural_net.network,
+        'crf_params.pdf'
+    )
+
     best_params = nn.train(
-        train_neural_net, train_set, n_epochs=500, batch_size=BATCH_SIZE,
+        train_neural_net, train_set, n_epochs=1000, batch_size=BATCH_SIZE,
         validation_set=val_set, early_stop=20,
         batch_iterator=dmgr.iterators.iterate_datasources,
-        sequence_length=MAX_SEQ_LEN
+        sequence_length=MAX_SEQ_LEN,
+        updates=[pltr]
     )
+
+    pltr.close()
 
     # train_neural_net.save_parameters('crf_params.pkl')
 
@@ -135,6 +147,7 @@ def main():
     dest_dir = os.path.join('results', os.path.splitext(__file__)[0])
     pred_files = test.compute_labeling(test_neural_net, test_set,
                                        dest_dir=dest_dir,
+                                       fps=feature_computer.fps,
                                        rnn=True, out_onehot=False)
     print('\tWrote chord predictions to {}.'.format(dest_dir))
 

@@ -285,8 +285,7 @@ DATASET_DEFS = {
 
 def load_dataset(name, data_dir=DATA_DIR, feature_cache_dir=CACHE_DIR,
                  compute_features=LogFiltSpec(),
-                 compute_targets=chords_maj_min,
-                 fps=LFS_FPS):
+                 compute_targets=chords_maj_min):
 
     assert name in DATASET_DEFS.keys(), 'Unknown dataset {}'.format(name)
 
@@ -302,7 +301,6 @@ def load_dataset(name, data_dir=DATA_DIR, feature_cache_dir=CACHE_DIR,
         gt_ext=GT_EXT,
         compute_features=compute_features,
         compute_targets=compute_targets,
-        fps=fps
     )
 
 
@@ -310,14 +308,13 @@ def load_datasets(dataset_names=None, data_dir=DATA_DIR,
                   feature_cache_dir=CACHE_DIR,
                   compute_features=LogFiltSpec(),
                   compute_targets=chords_maj_min,
-                  fps=LFS_FPS,
                   **kwargs):
 
     dataset_names = dataset_names or ['beatles', 'queen', 'zweieck']
 
     # load all datasets
     datasets = [load_dataset(name, data_dir, feature_cache_dir,
-                             compute_features, compute_targets, fps)
+                             compute_features, compute_targets)
                 for name in dataset_names]
 
     # uses fold 0 for validation, fold 1 for test, rest for training

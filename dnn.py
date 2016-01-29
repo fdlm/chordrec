@@ -83,11 +83,14 @@ def main():
 
     print(Colors.red('Loading data...\n'))
 
+    feature_computer = data.LogFiltSpec()
+
     # load all data sets
     train_set, val_set, test_set, gt_files = data.load_datasets(
         preprocessors=[dmgr.preprocessing.DataWhitener(),
                        dmgr.preprocessing.MaxNorm()],
         data_source_type=dmgr.datasources.ContextDataSource,
+        compute_features=feature_computer,
         context_size=5
     )
 
@@ -119,7 +122,7 @@ def main():
     best_params = nn.train(
         neural_net, train_set, n_epochs=500, batch_size=BATCH_SIZE,
         validation_set=val_set, early_stop=20,
-        threaded=5
+        threaded=10
     )
 
     print(Colors.red('\nStarting testing...\n'))
@@ -127,7 +130,7 @@ def main():
     dest_dir = os.path.join('results', os.path.splitext(__file__)[0])
     neural_net.set_parameters(best_params)
     pred_files = test.compute_labeling(neural_net, test_set, dest_dir=dest_dir,
-                                       rnn=False)
+                                       fps=feature_computer.fps, rnn=False)
     print('\tWrote chord predictions to {}.'.format(dest_dir))
 
     print(Colors.red('\nResults:\n'))

@@ -19,18 +19,35 @@ def stack_layers(feature_var, feature_shape, batch_size, out_size):
 
     nl = lnn.nonlinearities.rectify
 
-    net = lnn.layers.DenseLayer(net, num_units=100, nonlinearity=nl)
+    net = lnn.layers.DenseLayer(net, num_units=100, nonlinearity=nl,
+                                name='fe-1')
     net = lnn.layers.DropoutLayer(net, p=0.3)
-    net = lnn.layers.DenseLayer(net, num_units=100, nonlinearity=nl)
+    net = lnn.layers.DenseLayer(net, num_units=100, nonlinearity=nl,
+                                name='fe-2')
     net = lnn.layers.DropoutLayer(net, p=0.3)
-    net = lnn.layers.DenseLayer(net, num_units=100, nonlinearity=nl)
+    net = lnn.layers.DenseLayer(net, num_units=100, nonlinearity=nl,
+                                name='fe-3')
+    net = lnn.layers.DropoutLayer(net, p=0.3)
+
+    # "feature extraction" output layer
+    fe_out = lnn.layers.DenseLayer(net, name='fe-out', num_units=out_size,
+                                   nonlinearity=lnn.nonlinearities.softmax)
+
+    net = lnn.layers.DenseLayer(net, num_units=100, nonlinearity=nl,
+                                name='dnn-1')
+    net = lnn.layers.DropoutLayer(net, p=0.3)
+    net = lnn.layers.DenseLayer(net, num_units=100, nonlinearity=nl,
+                                name='dnn-2')
+    net = lnn.layers.DropoutLayer(net, p=0.3)
+    net = lnn.layers.DenseLayer(net, num_units=100, nonlinearity=nl,
+                                name='dnn-3')
     net = lnn.layers.DropoutLayer(net, p=0.3)
 
     # output layer
     net = lnn.layers.DenseLayer(net, name='output', num_units=out_size,
                                 nonlinearity=lnn.nonlinearities.softmax)
 
-    return net
+    return net, fe_out
 
 
 def compute_loss(prediction, target):
@@ -41,37 +58,41 @@ def build_net(feature_shape, batch_size, out_size):
     # create the network
     feature_var = tt.matrix('feature_input', dtype='float32')
     target_var = tt.matrix('target_output', dtype='float32')
-    network = stack_layers(feature_var, feature_shape, batch_size, out_size)
+    net, fe_net = stack_layers(feature_var, feature_shape, batch_size, out_size)
 
-    # create train function
-    prediction = lnn.layers.get_output(network)
+    # create feature extraction train function
+    fe_pred = lnn.layers.get_output(fe_net)
+    fe_loss = compute_loss(fe_pred, target_var)
+    fe_params = lnn.layers.get_all_params(fe_net, trainable=True)
+    fe_upd = lnn.updates.adadelta(fe_loss, fe_params)
 
-    l2_penalty = lnn.regularization.regularize_network_params(
-        network, lnn.regularization.l2) * 0
-    loss = compute_loss(prediction, target_var) + l2_penalty
+    train_fe = theano.function([feature_var, target_var],
+                               fe_loss, updates=fe_upd)
 
-    params = lnn.layers.get_all_params(network, trainable=True)
-    updates = lnn.updates.adam(loss, params, learning_rate=0.0001)
+    fe_test_pred = lnn.layers.get_output(fe_net, deterministic=True)
+    fe_test_loss = compute_loss(fe_test_pred, target_var)
+    test_fe = theano.function([feature_var, target_var], fe_test_loss)
 
-    # max norm constraint on weights
-    # all_non_bias_params = lnn.layers.get_all_params(network, trainable=True,
-    #                                                 regularizable=True)
-    # for param, update in updates.iteritems():
-    #     if param in all_non_bias_params:
-    #         updates[param] = lnn.updates.norm_constraint(update, max_norm=4)
+    # create dnn train function
+    pred = lnn.layers.get_output(net)
+    loss = compute_loss(pred, target_var)
+    # get only non-fe params
+    params = list(set(lnn.layers.get_all_params(net)) - set(fe_params))
+    upd = lnn.updates.adadelta(loss, params)
 
-    train = theano.function([feature_var, target_var], loss,
-                            updates=updates)
+    train = theano.function([feature_var, target_var],
+                            loss, updates=upd)
 
     # create test and process function. process just computes the prediction
     # without computing the loss, and thus does not need target labels
-    test_prediction = lnn.layers.get_output(network, deterministic=True)
-    test_loss = compute_loss(test_prediction, target_var) + l2_penalty
+    test_prediction = lnn.layers.get_output(net, deterministic=True)
+    test_loss = compute_loss(test_prediction, target_var)
 
     test = theano.function([feature_var, target_var], test_loss)
     process = theano.function([feature_var], test_prediction)
 
-    return nn.NeuralNetwork(network, train, test, process)
+    return (nn.NeuralNetwork(fe_net, train_fe, test_fe, None),
+            nn.NeuralNetwork(net, train, test, process))
 
 
 BATCH_SIZE = 512
@@ -81,8 +102,7 @@ def main():
 
     print(Colors.red('Loading data...\n'))
 
-    feature_computer = data.LogFiltSpec()
-
+    feature_computer = data.ConstantQ()
     # load all data sets
     train_set, val_set, test_set, gt_files = data.load_datasets(
         preprocessors=[dmgr.preprocessing.DataWhitener(),
@@ -103,7 +123,7 @@ def main():
     # build network
     print(Colors.red('Building network...\n'))
 
-    neural_net = build_net(
+    fe_net, neural_net = build_net(
         feature_shape=train_set.feature_shape,
         batch_size=None,
         out_size=train_set.target_shape[0]
@@ -113,7 +133,15 @@ def main():
     print(neural_net)
     print('')
 
-    print(Colors.red('Starting training...\n'))
+    print(Colors.red('Starting feature extraction training...\n'))
+
+    best_fe_params = nn.train(
+        fe_net, train_set, n_epochs=500, batch_size=BATCH_SIZE,
+        validation_set=val_set, early_stop=20,
+        threaded=10
+    )
+
+    print(Colors.red('Starting neural network training...\n'))
 
     best_params = nn.train(
         neural_net, train_set, n_epochs=500, batch_size=BATCH_SIZE,
@@ -124,7 +152,7 @@ def main():
     print(Colors.red('\nStarting testing...\n'))
 
     dest_dir = os.path.join('results', os.path.splitext(__file__)[0])
-    neural_net.set_parameters(best_params)
+    # neural_net.set_parameters(best_params)
     pred_files = test.compute_labeling(neural_net, test_set, dest_dir=dest_dir,
                                        fps=feature_computer.fps, rnn=False)
     print('\tWrote chord predictions to {}.'.format(dest_dir))
@@ -132,8 +160,8 @@ def main():
     print(Colors.red('\nResults:\n'))
 
     test_gt_files = dmgr.files.match_files(
-        pred_files, gt_files,
-        test.PREDICTION_EXT, data.GT_EXT
+            pred_files, gt_files,
+            test.PREDICTION_EXT, data.GT_EXT
     )
 
     test.print_scores(test.compute_average_scores(test_gt_files, pred_files))
@@ -143,3 +171,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+

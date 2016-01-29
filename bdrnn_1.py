@@ -27,23 +27,42 @@ def stack_layers(feature_var, mask_var, feature_shape, batch_size, max_seq_len,
                                     input_var=mask_var,
                                     shape=(batch_size, max_seq_len))
 
-    n_rec_units = 32
+    n_rec_units = 128
 
     fwd = lnn.layers.RecurrentLayer(
-        net, name='recurrent_fwd', num_units=n_rec_units, mask_input=mask_in,
+        net, name='recurrent_fwd_1', num_units=n_rec_units, mask_input=mask_in,
         grad_clipping=1.,
-        W_in_to_hid=lnn.init.GlorotUniform(),
-        learn_init=True,
-        W_hid_to_hid=np.eye(n_rec_units, dtype=np.float32) * 0.9
+        W_in_to_hid=lnn.init.HeUniform(),
+        W_hid_to_hid=lnn.init.HeUniform(),
+        # W_hid_to_hid=np.eye(n_rec_units, dtype=np.float32) * 0.9
+    )
+
+    fwd = lnn.layers.RecurrentLayer(
+            fwd, name='recurrent_fwd_2', num_units=n_rec_units, mask_input=mask_in,
+            grad_clipping=1.,
+            W_in_to_hid=lnn.init.HeUniform(),
+            W_hid_to_hid=lnn.init.HeUniform(),
+            # W_hid_to_hid=np.eye(n_rec_units, dtype=np.float32) * 0.9
     )
 
     bck = lnn.layers.RecurrentLayer(
-        net, name='recurrent_bck', num_units=n_rec_units, mask_input=mask_in,
+        net, name='recurrent_bck_1', num_units=n_rec_units, mask_input=mask_in,
         grad_clipping=1.,
-        W_in_to_hid=lnn.init.GlorotUniform(),
-        learn_init=True,
-        W_hid_to_hid=np.eye(n_rec_units, dtype=np.float32) * 0.9,
+        W_in_to_hid=lnn.init.HeUniform(),
+        W_hid_to_hid=lnn.init.HeUniform(),
+        # learn_init=True,
+        # W_hid_to_hid=np.eye(n_rec_units, dtype=np.float32) * 0.9,
         backwards=True
+    )
+
+    bck = lnn.layers.RecurrentLayer(
+            bck, name='recurrent_bck_2', num_units=n_rec_units, mask_input=mask_in,
+            grad_clipping=1.,
+            W_in_to_hid=lnn.init.HeUniform(),
+            W_hid_to_hid=lnn.init.HeUniform(),
+            # learn_init=True,
+            # W_hid_to_hid=np.eye(n_rec_units, dtype=np.float32) * 0.9,
+            backwards=True
     )
 
     # first combine the forward and backward recurrent layers...
@@ -54,10 +73,9 @@ def stack_layers(feature_var, mask_var, feature_shape, batch_size, max_seq_len,
     # cause each time step of each sequence to be processed independently
     net = lnn.layers.ReshapeLayer(net, (-1, n_rec_units * 2),
                                   name='reshape to single')
-
     net = lnn.layers.DropoutLayer(net, p=0.5)
 
-    net = lnn.layers.DenseLayer(net, num_units=64,
+    net = lnn.layers.DenseLayer(net, num_units=128,
                                 nonlinearity=lnn.nonlinearities.rectify,
                                 name='fc-1')
     net = lnn.layers.DropoutLayer(net, p=0.5)
@@ -82,7 +100,7 @@ def compute_loss(prediction, target, mask):
 def build_net(feature_shape, batch_size, max_seq_len, out_size):
     # create the network
     feature_var = tt.tensor3('feature_input', dtype='float32')
-    target_var = tt.tensor3('target_output', dtype='int32')
+    target_var = tt.tensor3('target_output', dtype='float32')
     mask_var = tt.matrix('mask_input', dtype='float32')
 
     network = stack_layers(feature_var, mask_var,
@@ -92,12 +110,12 @@ def build_net(feature_shape, batch_size, max_seq_len, out_size):
     prediction = lnn.layers.get_output(network)
 
     l2_penalty = lnn.regularization.regularize_network_params(
-        network, lnn.regularization.l2) * 1e-4
+        network, lnn.regularization.l2) * 1e-6
     loss = compute_loss(prediction, target_var, mask_var) + l2_penalty
 
     params = lnn.layers.get_all_params(network, trainable=True)
 
-    updates = lnn.updates.adam(loss, params, learning_rate=0.0001)
+    updates = lnn.updates.adam(loss, params, learning_rate=0.001)
 
     train = theano.function([feature_var, mask_var, target_var], loss,
                             updates=updates)
@@ -113,18 +131,21 @@ def build_net(feature_shape, batch_size, max_seq_len, out_size):
     return nn.NeuralNetwork(network, train, test, process)
 
 
-BATCH_SIZE = 32
-MAX_SEQ_LEN = 4096
+BATCH_SIZE = 64
+MAX_SEQ_LEN = 1024
 
 
 def main():
 
     print(Colors.red('Loading data...\n'))
 
+    feature_computer = data.LogFiltSpec()
+
     # load all data sets
     train_set, val_set, test_set, gt_files = data.load_datasets(
         preprocessors=[dmgr.preprocessing.DataWhitener(),
                        dmgr.preprocessing.MaxNorm()],
+        compute_features=feature_computer
     )
 
     print(Colors.blue('Train Set:'))
@@ -177,7 +198,7 @@ def main():
     dest_dir = os.path.join('results', os.path.splitext(__file__)[0])
     pred_files = test.compute_labeling(test_neural_net, test_set,
                                        dest_dir=dest_dir,
-                                       rnn=True)
+                                       fps=feature_computer.fps, rnn=True)
     print('\tWrote chord predictions to {}.'.format(dest_dir))
 
     print(Colors.red('\nResults:\n'))

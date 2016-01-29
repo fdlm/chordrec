@@ -88,10 +88,12 @@ def main():
 
     print(Colors.red('Loading data...\n'))
 
+    feature_computer = data.LogFiltSpec()
     # Load data sets
     train_set, val_set, test_set, gt_files = data.load_datasets(
-            preprocessors=[dmgr.preprocessing.DataWhitener(),
-                           dmgr.preprocessing.MaxNorm()],
+        preprocessors=[dmgr.preprocessing.DataWhitener(),
+                       dmgr.preprocessing.MaxNorm()],
+        compute_features=feature_computer
     )
 
     print(Colors.blue('Train Set:'))
@@ -144,7 +146,9 @@ def main():
     dest_dir = os.path.join('results', os.path.splitext(__file__)[0])
     pred_files = test.compute_labeling(test_neural_net, test_set,
                                        dest_dir=dest_dir,
+                                       fps=feature_computer.fps,
                                        rnn=True, out_onehot=False)
+
     print('\tWrote chord predictions to {}.'.format(dest_dir))
 
     print(Colors.red('\nResults:\n'))

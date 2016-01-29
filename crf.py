@@ -9,6 +9,7 @@ import nn
 import dmgr
 import data
 import test
+from plotting import CrfPlotter
 
 from nn.utils import Colors
 
@@ -75,12 +76,14 @@ def main():
 
     print(Colors.red('Loading data...\n'))
 
+    feature_computer=data.LogFiltSpec()
     # Load data sets
     train_set, val_set, test_set, gt_files = data.load_datasets(
-            preprocessors=[dmgr.preprocessing.DataWhitener(),
-                           dmgr.preprocessing.MaxNorm()],
-            data_source_type=dmgr.datasources.ContextDataSource,
-            context_size=5
+        preprocessors=[dmgr.preprocessing.DataWhitener(),
+                       dmgr.preprocessing.MaxNorm()],
+        data_source_type=dmgr.datasources.ContextDataSource,
+        context_size=3,
+        compute_features=feature_computer
     )
 
     print(Colors.blue('Train Set:'))
@@ -111,14 +114,22 @@ def main():
 
     # train_neural_net.load_parameters('crf_params.pkl')
 
-    best_params = nn.train(
-            train_neural_net, train_set, n_epochs=2, batch_size=BATCH_SIZE,
-            validation_set=val_set, early_stop=20,
-            batch_iterator=dmgr.iterators.iterate_datasources,
-            sequence_length=MAX_SEQ_LEN
+    pltr = CrfPlotter(
+            train_neural_net.network,
+            'crf_params_context.pdf'
     )
 
-    # train_neural_net.save_parameters('crf_params.pkl')
+    best_params = nn.train(
+        train_neural_net, train_set, n_epochs=1000, batch_size=BATCH_SIZE,
+        validation_set=val_set, early_stop=20,
+        batch_iterator=dmgr.iterators.iterate_datasources,
+        sequence_length=MAX_SEQ_LEN,
+        updates=[pltr]
+    )
+
+    pltr.close()
+
+    train_neural_net.save_parameters('crf_params.pkl')
 
     print(Colors.red('\nStarting testing...\n'))
 
@@ -126,10 +137,10 @@ def main():
 
     # build test rnn with batch size 1 and no max sequence length
     test_neural_net = build_net(
-            feature_shape=test_set.feature_shape,
-            batch_size=1,
-            max_seq_len=None,
-            out_size=test_set.target_shape[0]
+        feature_shape=test_set.feature_shape,
+        batch_size=1,
+        max_seq_len=None,
+        out_size=test_set.target_shape[0]
     )
 
     test_neural_net.set_parameters(best_params)
@@ -137,6 +148,7 @@ def main():
     dest_dir = os.path.join('results', os.path.splitext(__file__)[0])
     pred_files = test.compute_labeling(test_neural_net, test_set,
                                        dest_dir=dest_dir,
+                                       fps=feature_computer.fps,
                                        rnn=True, out_onehot=False)
     print('\tWrote chord predictions to {}.'.format(dest_dir))
 
