@@ -302,13 +302,25 @@ def load_dataset(name, data_dir=DATA_DIR, feature_cache_dir=CACHE_DIR,
     )
 
 
-def load_datasets(dataset_names=None, data_dir=DATA_DIR,
-                  feature_cache_dir=CACHE_DIR,
-                  compute_features=LogFiltSpec(),
-                  compute_targets=chords_maj_min,
-                  **kwargs):
+def create_preprocessors(preproc_def):
+    preprocessors = []
+    for pp_name, pp_params in preproc_def:
+        preprocessors.append(getattr(dmgr.preprocessing, pp_name)(**pp_params))
+    return preprocessors
 
-    dataset_names = dataset_names or ['beatles', 'queen', 'zweieck']
+
+def create_datasources(dataset_names, preprocessors,
+                       compute_features, compute_targets, context_size,
+                       data_dir=DATA_DIR, feature_cache_dir=CACHE_DIR,
+                       **kwargs):
+
+    preprocessors = create_preprocessors(preprocessors)
+
+    if context_size > 0:
+        data_source_type = dmgr.datasources.ContextDataSource
+        kwargs['context_size'] = context_size
+    else:
+        data_source_type = dmgr.datasources.ContextDataSource
 
     # load all datasets
     datasets = [load_dataset(name, data_dir, feature_cache_dir,
@@ -318,6 +330,7 @@ def load_datasets(dataset_names=None, data_dir=DATA_DIR,
     # uses fold 0 for validation, fold 1 for test, rest for training
     train, val, test = dmgr.datasources.get_datasources(
         combine_files(*[ds.get_fold_split() for ds in datasets]),
+        preprocessors=preprocessors, data_source_type=data_source_type,
         **kwargs
     )
 
