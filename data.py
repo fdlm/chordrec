@@ -192,9 +192,7 @@ class ConstantQ:
             self.fps, self.num_bands, self.align, self.fmin, self.num_octaves
         )
 
-    def __call__(self, audio_file, fps):
-
-        assert self.fps == fps
+    def __call__(self, audio_file):
 
         audio = mm.audio.signal.Signal(audio_file,
                                        sample_rate=self.sample_rate,

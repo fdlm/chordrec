@@ -2,9 +2,9 @@ from __future__ import print_function
 import os
 import theano
 import theano.tensor as tt
+from docopt import docopt
 import lasagne as lnn
 import spaghetti as spg
-import madmom as mm
 
 import nn
 import dmgr
@@ -13,6 +13,13 @@ import test
 
 from nn.utils import Colors
 from plotting import CrfPlotter
+
+
+USAGE = """Usage: crf_no_context.py [-f=<frame_size>...]
+
+Options:
+    -f=<frame_size>  frame size for spectrogram [default: 16384]
+"""
 
 
 def stack_layers(feature_var, mask_var, feature_shape, batch_size, max_seq_len,
@@ -75,9 +82,13 @@ MAX_SEQ_LEN = 1024
 
 def main():
 
+    args = docopt(USAGE)
+    frame_sizes = map(int, args['-f'])
+
     print(Colors.red('Loading data...\n'))
 
-    feature_computer = data.LogFiltSpec()
+    feature_computer = data.LogFiltSpec(frame_sizes=frame_sizes)
+    print(feature_computer.name)
     # Load data sets
     train_set, val_set, test_set, gt_files = data.load_datasets(
         preprocessors=[dmgr.preprocessing.DataWhitener(),

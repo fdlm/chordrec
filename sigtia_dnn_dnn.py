@@ -105,6 +105,7 @@ def main():
     feature_computer = data.ConstantQ()
     # load all data sets
     train_set, val_set, test_set, gt_files = data.load_datasets(
+        # dataset_names=['beatles', 'queen', 'zweieck', 'billboard'],
         preprocessors=[dmgr.preprocessing.DataWhitener(),
                        dmgr.preprocessing.MaxNorm()],
         compute_features=feature_computer
@@ -128,6 +129,10 @@ def main():
         batch_size=None,
         out_size=train_set.target_shape[0]
     )
+
+    print(Colors.blue('Feature Extraction Network:'))
+    print(fe_net)
+    print('')
 
     print(Colors.blue('Neural Network:'))
     print(neural_net)

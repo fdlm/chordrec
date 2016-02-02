@@ -4,6 +4,7 @@ import numpy as np
 import theano
 import theano.tensor as tt
 import lasagne as lnn
+from docopt import docopt
 
 import nn
 import dmgr
@@ -12,6 +13,13 @@ import data
 import test
 
 from nn.utils import Colors
+
+USAGE = """Usage: crf_no_context.py [-f=<frame_size>...] [--fps=<fps>]
+
+Options:
+    -f=<frame_size>  frame size for spectrogram [default: 16384]
+    --fps=<fps>  frames per second [default: 10]
+"""
 
 
 def stack_layers(feature_var, mask_var, feature_shape, batch_size, max_seq_len,
@@ -32,37 +40,47 @@ def stack_layers(feature_var, mask_var, feature_shape, batch_size, max_seq_len,
     fwd = lnn.layers.RecurrentLayer(
         net, name='recurrent_fwd_1', num_units=n_rec_units, mask_input=mask_in,
         grad_clipping=1.,
-        W_in_to_hid=lnn.init.HeUniform(),
-        W_hid_to_hid=lnn.init.HeUniform(),
-        # W_hid_to_hid=np.eye(n_rec_units, dtype=np.float32) * 0.9
+        W_in_to_hid=lnn.init.GlorotUniform(),
+        W_hid_to_hid=lnn.init.Orthogonal(gain=np.sqrt(2) / 2),
+    )
+    fwd = lnn.layers.DropoutLayer(fwd, p=0.3)
+    fwd = lnn.layers.RecurrentLayer(
+        fwd, name='recurrent_fwd_2', num_units=n_rec_units, mask_input=mask_in,
+        grad_clipping=1.,
+        W_in_to_hid=lnn.init.GlorotUniform(),
+        W_hid_to_hid=lnn.init.Orthogonal(gain=np.sqrt(2) / 2),
     )
 
+    fwd = lnn.layers.DropoutLayer(fwd, p=0.3)
     fwd = lnn.layers.RecurrentLayer(
-            fwd, name='recurrent_fwd_2', num_units=n_rec_units, mask_input=mask_in,
-            grad_clipping=1.,
-            W_in_to_hid=lnn.init.HeUniform(),
-            W_hid_to_hid=lnn.init.HeUniform(),
-            # W_hid_to_hid=np.eye(n_rec_units, dtype=np.float32) * 0.9
+        fwd, name='recurrent_fwd_3', num_units=n_rec_units, mask_input=mask_in,
+        grad_clipping=1.,
+        W_in_to_hid=lnn.init.GlorotUniform(),
+        W_hid_to_hid=lnn.init.GlorotUniform(),
     )
 
     bck = lnn.layers.RecurrentLayer(
         net, name='recurrent_bck_1', num_units=n_rec_units, mask_input=mask_in,
         grad_clipping=1.,
-        W_in_to_hid=lnn.init.HeUniform(),
-        W_hid_to_hid=lnn.init.HeUniform(),
-        # learn_init=True,
-        # W_hid_to_hid=np.eye(n_rec_units, dtype=np.float32) * 0.9,
+        W_in_to_hid=lnn.init.GlorotUniform(),
+        W_hid_to_hid=lnn.init.Orthogonal(gain=np.sqrt(2) / 2),
         backwards=True
     )
-
+    bck = lnn.layers.DropoutLayer(bck, p=0.3)
     bck = lnn.layers.RecurrentLayer(
-            bck, name='recurrent_bck_2', num_units=n_rec_units, mask_input=mask_in,
-            grad_clipping=1.,
-            W_in_to_hid=lnn.init.HeUniform(),
-            W_hid_to_hid=lnn.init.HeUniform(),
-            # learn_init=True,
-            # W_hid_to_hid=np.eye(n_rec_units, dtype=np.float32) * 0.9,
-            backwards=True
+        bck, name='recurrent_bck_2', num_units=n_rec_units, mask_input=mask_in,
+        grad_clipping=1.,
+        W_in_to_hid=lnn.init.GlorotUniform(),
+        W_hid_to_hid=lnn.init.Orthogonal(gain=np.sqrt(2) / 2),
+        backwards=True
+    )
+    bck = lnn.layers.DropoutLayer(bck, p=0.3)
+    bck = lnn.layers.RecurrentLayer(
+        bck, name='recurrent_bck_3', num_units=n_rec_units, mask_input=mask_in,
+        grad_clipping=1.,
+        W_in_to_hid=lnn.init.GlorotUniform(),
+        W_hid_to_hid=lnn.init.GlorotUniform(),
+        backwards=True
     )
 
     # first combine the forward and backward recurrent layers...
@@ -73,12 +91,12 @@ def stack_layers(feature_var, mask_var, feature_shape, batch_size, max_seq_len,
     # cause each time step of each sequence to be processed independently
     net = lnn.layers.ReshapeLayer(net, (-1, n_rec_units * 2),
                                   name='reshape to single')
-    net = lnn.layers.DropoutLayer(net, p=0.5)
+    net = lnn.layers.DropoutLayer(net, p=0.3)
 
-    net = lnn.layers.DenseLayer(net, num_units=128,
-                                nonlinearity=lnn.nonlinearities.rectify,
-                                name='fc-1')
-    net = lnn.layers.DropoutLayer(net, p=0.5)
+    # net = lnn.layers.DenseLayer(net, num_units=128,
+    #                             nonlinearity=lnn.nonlinearities.rectify,
+    #                             name='fc-1')
+    # net = lnn.layers.DropoutLayer(net, p=0.5)
 
     net = lnn.layers.DenseLayer(net, num_units=out_size,
                                 nonlinearity=lnn.nonlinearities.softmax,
@@ -136,10 +154,17 @@ MAX_SEQ_LEN = 1024
 
 
 def main():
+    args = docopt(USAGE)
+    frame_sizes = map(int, args['-f'])
+    fps = int(args['--fps'])
+
+    feature_computer = data.LogFiltSpec(frame_sizes=frame_sizes,
+                                        fps=fps)
+    print(feature_computer.name)
 
     print(Colors.red('Loading data...\n'))
 
-    feature_computer = data.LogFiltSpec()
+    print(feature_computer.name)
 
     # load all data sets
     train_set, val_set, test_set, gt_files = data.load_datasets(

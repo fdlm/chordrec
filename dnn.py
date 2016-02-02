@@ -3,6 +3,7 @@ import os
 import theano
 import theano.tensor as tt
 import lasagne as lnn
+from docopt import docopt
 
 import nn
 import dmgr
@@ -10,6 +11,22 @@ import test
 import data
 
 from nn.utils import Colors
+
+
+USAGE = """Usage: crf_no_context.py [-f=<frame_size>...]
+
+Options:
+    -f=<frame_size>  frame size for spectrogram [default: 16384]
+"""
+
+
+def log_softmax(x):
+    xdev = x - x.max(1, keepdims=True)
+    return xdev - tt.log(tt.sum(tt.exp(xdev), axis=1, keepdims=True))
+
+
+def categorical_crossentropy_logdomain(log_predictions, targets):
+    return -tt.sum(targets * log_predictions, axis=1)
 
 
 def stack_layers(feature_var, feature_shape, batch_size, out_size):
@@ -32,11 +49,14 @@ def stack_layers(feature_var, feature_shape, batch_size, out_size):
     net = lnn.layers.DenseLayer(net, name='output', num_units=out_size,
                                 nonlinearity=lnn.nonlinearities.softmax)
 
+    # net = lnn.layers.DenseLayer(net, name='output', num_units=out_size,
+    #                             nonlinearity=log_softmax)
     return net
 
 
 def compute_loss(prediction, target):
     return lnn.objectives.categorical_crossentropy(prediction, target).mean()
+    # return categorical_crossentropy_logdomain(prediction, target).mean()
 
 
 def build_net(feature_shape, batch_size, out_size):
@@ -80,12 +100,15 @@ BATCH_SIZE = 512
 
 
 def main():
+    args = docopt(USAGE)
+    frame_sizes = map(int, args['-f'])
 
+    feature_computer = data.LogFiltSpec(frame_sizes=frame_sizes)
+    print(feature_computer.name)
+
+    # Load data sets
     print(Colors.red('Loading data...\n'))
 
-    feature_computer = data.LogFiltSpec()
-
-    # load all data sets
     train_set, val_set, test_set, gt_files = data.load_datasets(
         preprocessors=[dmgr.preprocessing.DataWhitener(),
                        dmgr.preprocessing.MaxNorm()],
