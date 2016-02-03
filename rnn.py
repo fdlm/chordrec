@@ -263,6 +263,3 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
 
     print('')
 
-
-if __name__ == '__main__':
-    main()

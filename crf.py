@@ -40,13 +40,14 @@ def build_net(feature_shape, batch_size, l2_lambda, max_seq_len,
     mask_var = tt.matrix('mask_input', dtype='float32')
 
     # stack more layers (in this case create a CRF)
-    net = lnn.layers.InputLayer(name='input',
-                                shape=(batch_size, max_seq_len) + feature_shape,
-                                input_var=feature_var)
+    net = lnn.layers.InputLayer(
+        name='input', shape=(batch_size, max_seq_len) + feature_shape,
+        input_var=feature_var
+    )
 
-    mask_in = lnn.layers.InputLayer(name='mask',
-                                    input_var=mask_var,
-                                    shape=(batch_size, max_seq_len))
+    mask_in = lnn.layers.InputLayer(
+        name='mask', input_var=mask_var, shape=(batch_size, max_seq_len)
+    )
 
     net = spg.layers.CrfLayer(incoming=net, mask_input=mask_in,
                               num_states=out_size, name='CRF')
