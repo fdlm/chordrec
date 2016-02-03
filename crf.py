@@ -113,13 +113,13 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
     print(Colors.red('Loading data...\n'))
 
     train_set, val_set, test_set, gt_files = data.create_datasources(
-            dataset_names=datasource['datasets'],
-            preprocessors=datasource['preprocessors'],
-            compute_features=features.create_extractor(feature_extractor),
-            compute_targets=data.chords_maj_min,
-            context_size=datasource['context_size'],
-            test_fold=datasource['test_fold'],
-            val_fold=datasource['val_fold']
+        dataset_names=datasource['datasets'],
+        preprocessors=datasource['preprocessors'],
+        compute_features=features.create_extractor(feature_extractor),
+        compute_targets=data.chords_maj_min,
+        context_size=datasource['context_size'],
+        test_fold=datasource['test_fold'],
+        val_fold=datasource['val_fold']
     )
 
     print(Colors.blue('Train Set:'))
