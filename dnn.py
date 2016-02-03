@@ -104,6 +104,19 @@ def config():
     )
 
 
+@ex.config
+def no_context():
+    datasource = dict(
+        context_size=0
+    )
+
+    net = dict(
+        num_units=100,
+        dropout=0.3,
+        l2_lambda=0.
+    )
+
+
 @ex.automain
 def main(_config, _run, observations, datasource, net, feature_extractor,
          optimiser, training):
