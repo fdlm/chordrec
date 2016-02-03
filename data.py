@@ -228,7 +228,7 @@ def create_datasources(dataset_names, preprocessors,
         data_source_type = dmgr.datasources.ContextDataSource
         kwargs['context_size'] = context_size
     else:
-        data_source_type = dmgr.datasources.ContextDataSource
+        data_source_type = dmgr.datasources.DataSource
 
     # load all datasets
     datasets = [load_dataset(name, data_dir, feature_cache_dir,

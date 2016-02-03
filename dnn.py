@@ -33,7 +33,9 @@ def compute_loss(prediction, target):
 def build_net(feature_shape, batch_size, l2_lambda, num_units, num_layers,
               dropout, optimiser, out_size):
     # input variables
-    feature_var = tt.tensor3('feature_input', dtype='float32')
+    feature_var = (tt.tensor3('feature_input', dtype='float32')
+                   if len(feature_shape) > 1 else
+                   tt.matrix('feature_input', dtype='float32'))
     target_var = tt.matrix('target_output', dtype='float32')
 
     # stack more layers
@@ -76,7 +78,7 @@ def config():
     observations = 'results'
 
     datasource = dict(
-        context_size=5,
+        context_size=7,
     )
 
     feature_extractor = None
@@ -170,12 +172,12 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
         ex.add_artifact(param_file)
 
         pred_files = test.compute_labeling(
-                neural_net, test_set, dest_dir=dest_dir,
-                fps=feat_ext.fps, rnn=False
+            neural_net, test_set, dest_dir=dest_dir,
+            fps=feature_extractor['params']['fps'], rnn=False
         )
 
         test_gt_files = dmgr.files.match_files(
-                pred_files, gt_files, test.PREDICTION_EXT, data.GT_EXT
+            pred_files, gt_files, test.PREDICTION_EXT, data.GT_EXT
         )
 
         print(Colors.red('\nResults:\n'))
