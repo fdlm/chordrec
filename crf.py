@@ -33,7 +33,7 @@ def build_net(feature_shape, batch_size, l2_lambda, max_seq_len,
               optimiser, out_size):
     # input variables
     feature_var = (tt.tensor4('feature_input', dtype='float32')
-                   if len(feature_shape) > 2 else
+                   if len(feature_shape) > 1 else
                    tt.tensor3('feature_input', dtype='float32'))
 
     target_var = tt.tensor3('target_output', dtype='float32')
