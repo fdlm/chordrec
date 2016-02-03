@@ -3,25 +3,12 @@ import string
 
 import numpy as np
 
-import madmom as mm
 import dmgr
 
 DATA_DIR = 'data'
 CACHE_DIR = 'feature_cache'
 SRC_EXT = '.flac'
 GT_EXT = '.chords'
-
-# Feature extraction parameters for LFS
-LFS_FPS = 10
-LFS_NUM_BANDS = 24
-LFS_FMAX = 5500
-LFS_FFTS = [8192 * 2]  # corresponds to ~0.37 seconds
-LFS_UNIQUE_FILTERS = False
-
-# Feature extraction parameters for CQT
-CQ_FPS = 0.10  # corresponds to hop length of 4480
-CQ_N_BINS = 178
-CQ_BINS_PER_OCT = 24
 
 
 def chords_maj_min(target_file, num_frames, fps):
@@ -155,86 +142,6 @@ def write_chord_predictions(filename, predictions, fps):
                       for p in predictions_to_chord_label(predictions, fps)])
 
 
-class ConstantQ:
-
-    def __init__(self, align='c', num_bands=24, fmin=30, num_octaves=8,
-                 fps=10, sample_rate=44100):
-
-        self.fps = fps
-        self.num_bands = num_bands
-        self.align = align
-        self.fmin = fmin
-        self.num_octaves = num_octaves
-
-        self.sample_rate = sample_rate
-
-        from yaafelib import FeaturePlan, Engine
-
-        fp = FeaturePlan(sample_rate=sample_rate)
-
-        cqt_config = " ".join(['cqt: CQT',
-                               'CQTAlign={}'.format(align),
-                               'CQTBinsPerOctave={}'.format(num_bands),
-                               'CQTMinFreq={}'.format(fmin),
-                               'CQTNbOctaves={}'.format(num_octaves),
-                               'stepSize={}'.format(sample_rate / fps)
-                               ])
-
-        fp.addFeature(cqt_config)
-
-        df = fp.getDataFlow()
-        self.engine = Engine()
-        self.engine.load(df)
-
-    @property
-    def name(self):
-        return 'cqt_fps={}_num-bands={}_align={}_fmin={}_num_oct={}'.format(
-            self.fps, self.num_bands, self.align, self.fmin, self.num_octaves
-        )
-
-    def __call__(self, audio_file):
-
-        audio = mm.audio.signal.Signal(audio_file,
-                                       sample_rate=self.sample_rate,
-                                       num_channels=1).astype(np.float64)
-
-        cqt = self.engine.processAudio(audio.reshape((1, -1)))['cqt']
-        return cqt.astype(np.float32)
-
-
-class LogFiltSpec:
-
-    def __init__(self, frame_sizes=LFS_FFTS, num_bands=LFS_NUM_BANDS,
-                 fmax=LFS_FMAX, fps=LFS_FPS, sample_rate=44100):
-
-        self.frame_sizes = frame_sizes
-        self.num_bands = num_bands
-        self.fmax = fmax
-        self.fps = fps
-        self.sample_rate = sample_rate
-
-    @property
-    def name(self):
-        return 'lfs_fps={}_num-bands={}_fmax={}_frame_sizes=[{}]'.format(
-            self.fps, self.num_bands, self.fmax,
-            '-'.join(map(str, self.frame_sizes))
-        )
-
-    def __call__(self, audio_file):
-        # do not resample because ffmpeg/avconv creates terrible sampling
-        # artifacts
-        specs = [
-            mm.audio.spectrogram.LogarithmicFilteredSpectrogram(
-                    audio_file, num_channels=1, sample_rate=44100,
-                    fps=self.fps, frame_size=ffts,
-                    num_bands=self.num_bands, fmax=self.fmax,
-                    unique_filters=LFS_UNIQUE_FILTERS)
-            for ffts in self.frame_sizes
-        ]
-
-        return np.hstack(specs).astype(np.float32)
-
-
 def combine_files(*args):
     """
     Combines file dictionaries as returned by the methods of Dataset.
@@ -281,9 +188,8 @@ DATASET_DEFS = {
 }
 
 
-def load_dataset(name, data_dir=DATA_DIR, feature_cache_dir=CACHE_DIR,
-                 compute_features=LogFiltSpec(),
-                 compute_targets=chords_maj_min):
+def load_dataset(name, data_dir, feature_cache_dir,
+                 compute_features, compute_targets):
 
     assert name in DATASET_DEFS.keys(), 'Unknown dataset {}'.format(name)
 
@@ -338,3 +244,15 @@ def create_datasources(dataset_names, preprocessors,
     )
 
     return train, val, test, sum((ds.gt_files for ds in datasets), [])
+
+
+def add_sacred_config(ex):
+    ex.add_config(
+        datasource=dict(
+            datasets=['beatles', 'queen', 'zweieck'],
+            context_size=0,
+            preprocessors=[],
+            test_fold=0,
+            val_fold=None
+        )
+    )

@@ -2,7 +2,7 @@ from __future__ import print_function
 import sys
 import os
 import numpy as np
-from data import write_chord_predictions, LFS_FPS
+from data import write_chord_predictions
 from nn.utils import Colors
 
 
