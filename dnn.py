@@ -76,6 +76,8 @@ def config():
         datasets=['beatles', 'queen', 'zweieck'],
         context_size=5,
         preprocessors=[],
+        test_fold=0,
+        val_fold=None
     )
 
     feature_extractor = None
@@ -141,7 +143,9 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
         preprocessors=datasource['preprocessors'],
         compute_features=feat_ext,
         compute_targets=data.chords_maj_min,
-        context_size=datasource['context_size']
+        context_size=datasource['context_size'],
+        test_fold=datasource['test_fold'],
+        val_fold=datasource['val_fold']
     )
 
     print(Colors.blue('Train Set:'))

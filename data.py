@@ -312,8 +312,10 @@ def create_preprocessors(preproc_def):
 def create_datasources(dataset_names, preprocessors,
                        compute_features, compute_targets, context_size,
                        data_dir=DATA_DIR, feature_cache_dir=CACHE_DIR,
+                       test_fold=0, val_fold=None,
                        **kwargs):
 
+    val_fold = val_fold or test_fold - 1
     preprocessors = create_preprocessors(preprocessors)
 
     if context_size > 0:
@@ -329,7 +331,8 @@ def create_datasources(dataset_names, preprocessors,
 
     # uses fold 0 for validation, fold 1 for test, rest for training
     train, val, test = dmgr.datasources.get_datasources(
-        combine_files(*[ds.get_fold_split() for ds in datasets]),
+        combine_files(*[ds.get_fold_split(val_fold, test_fold)
+                        for ds in datasets]),
         preprocessors=preprocessors, data_source_type=data_source_type,
         **kwargs
     )
