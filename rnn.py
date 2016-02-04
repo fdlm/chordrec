@@ -32,8 +32,9 @@ def compute_loss(prediction, target, mask):
 
 
 def build_net(feature_shape, batch_size, l2_lambda, num_rec_units,
-              num_layers, dropout, grad_clip, bidirectional, optimiser,
-              max_seq_len, out_size):
+              num_layers, dropout, grad_clip, nonlinearity, bidirectional,
+              optimiser, max_seq_len, out_size):
+
     # input variables
     feature_var = tt.tensor3('feature_input', dtype='float32')
     target_var = tt.tensor3('target_output', dtype='float32')
@@ -52,12 +53,15 @@ def build_net(feature_shape, batch_size, l2_lambda, num_rec_units,
                                     input_var=mask_var,
                                     shape=(batch_size, max_seq_len))
 
+    nl = getattr(lnn.nonlinearities, nonlinearity)
+
     fwd = net
     for i in range(num_layers):
         fwd = lnn.layers.RecurrentLayer(
             fwd, name='recurrent_fwd_{}'.format(i),
             num_units=num_rec_units, mask_input=mask_in,
             grad_clipping=grad_clip,
+            nonlinearity=nl,
             W_in_to_hid=lnn.init.GlorotUniform(),
             W_hid_to_hid=lnn.init.Orthogonal(gain=np.sqrt(2) / 2),
         )
@@ -72,6 +76,7 @@ def build_net(feature_shape, batch_size, l2_lambda, num_rec_units,
                 bck, name='recurrent_bck_{}'.format(i),
                 num_units=num_rec_units, mask_input=mask_in,
                 grad_clipping=grad_clip,
+                nonlinearity=nl,
                 W_in_to_hid=lnn.init.GlorotUniform(),
                 W_hid_to_hid=lnn.init.Orthogonal(gain=np.sqrt(2) / 2),
                 backwards=True
@@ -129,7 +134,8 @@ def config():
         num_layers=3,
         dropout=0.3,
         grad_clip=1.,
-        bidirectional=True
+        bidirectional=True,
+        nonlinearity='rectify'
     )
 
     optimiser = dict(
@@ -191,6 +197,7 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
         dropout=net['dropout'],
         bidirectional=net['bidirectional'],
         grad_clip=net['grad_clip'],
+        nonlinearity=net['nonlinearity'],
         optimiser=create_optimiser(optimiser),
         out_size=train_set.target_shape[0]
     )
