@@ -162,8 +162,8 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
         dataset_names=datasource['datasets'],
         preprocessors=datasource['preprocessors'],
         compute_features=features.create_extractor(feature_extractor),
-        compute_targets=data.chords_maj_min,
         context_size=datasource['context_size'],
+        compute_targets=data.ChordsMajMin(feature_extractor['params']['fps']),
         test_fold=datasource['test_fold'],
         val_fold=datasource['val_fold']
     )

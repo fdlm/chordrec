@@ -11,97 +11,108 @@ SRC_EXT = '.flac'
 GT_EXT = '.chords'
 
 
-def chords_maj_min(target_file, num_frames, fps):
-    """
-    Creates one-hot encodings from a chord annotation file. Right now,
-    chords are mapped to major/minor, resulting in 24 chord classes and one
-    'no chord' class.
+class ChordsMajMin:
 
-    :param target_file: file containing chord annotations
-    :param num_frames:  number of frames in the audio file
-    :param fps:         frames per second
-    :return:            one-hot ground truth per frame
-    """
-    # first, create chord/class mapping. root note 'A' has id 0, increasing
-    # with each semitone. we have duplicate mappings for flat and sharp notes,
-    # just to be sure.
-    natural = zip(string.uppercase[:7], [0, 2, 3, 5, 7, 8, 10])
-    sharp = map(lambda v: (v[0] + '#', (v[1] + 1) % 12), natural)
-    flat = map(lambda v: (v[0] + 'b', (v[1] - 1) % 12), natural)
+    def __init__(self, fps):
+        self.fps = fps
 
-    # 'no chord' is coded as 'N'. The class ID of 'N' is 24, after all major
-    # and minor chords. Sometimes there is also an 'X' annotation, meaning
-    # that the chord cannot be properly determined on beat-lebel (too much
-    # going on in the audio). We will treat this also as 'no chord'
-    root_note_map = dict(natural + sharp + flat + [('N', 24), ('X', 24)])
+    @property
+    def name(self):
+        return 'chords_majmin_fps={}'.format(self.fps)
 
-    # then, we load the annotations, map the chords to class ids, and finally
-    # map class ids to a one-hot encoding. first, map the root notes.
-    ann = np.loadtxt(target_file, dtype=str)
-    chord_names = ann[:, -1]
-    chord_root_notes = [c.split(':')[0].split('/')[0] for c in chord_names]
-    chord_root_note_ids = np.array([root_note_map[crn]
-                                    for crn in chord_root_notes])
+    def __call__(self, target_file, num_frames):
+        """
+        Creates one-hot encodings from a chord annotation file. Right now,
+        chords are mapped to major/minor, resulting in 24 chord classes and one
+        'no chord' class.
 
-    # then, map the chords to major and minor. we assume chords with a minor
-    # third as first interval are considered minor chords,
-    # the rest are major chords, following MIREX, as stated in
-    # Taemin Cho, Juan Bello: "On the relative importance of Individual
-    # Components of Chord Recognition Systems"
+        :param target_file: file containing chord annotations
+        :param num_frames:  number of frames in the audio file
+        :return:            one-hot ground truth per frame
+        """
+        # first, create chord/class mapping. root note 'A' has id 0, increasing
+        # with each semitone. we have duplicate mappings for flat and sharp
+        # notes, just to be sure.
+        natural = zip(string.uppercase[:7], [0, 2, 3, 5, 7, 8, 10])
+        sharp = map(lambda v: (v[0] + '#', (v[1] + 1) % 12), natural)
+        flat = map(lambda v: (v[0] + 'b', (v[1] - 1) % 12), natural)
 
-    chord_type = [c.split(':')[1] if ':' in c else '' for c in chord_names]
+        # 'no chord' is coded as 'N'. The class ID of 'N' is 24, after all
+        # major and minor chords. Sometimes there is also an 'X' annotation,
+        # meaning that the chord cannot be properly determined on beat-lebel
+        # (too much going on in the audio). We will treat this also as
+        # 'no chord'
+        root_note_map = dict(natural + sharp + flat + [('N', 24), ('X', 24)])
 
-    # we will shift the class ids for all minor notes by 12 (num major chords)
-    chord_type_shift = np.array(
-        map(lambda x: 12 if 'min' in x or 'dim' in x else 0, chord_type)
-    )
+        # then, we load the annotations, map the chords to class ids, and
+        # finally map class ids to a one-hot encoding. first, map the root
+        # notes.
+        ann = np.loadtxt(target_file, dtype=str)
+        chord_names = ann[:, -1]
+        chord_root_notes = [c.split(':')[0].split('/')[0] for c in chord_names]
+        chord_root_note_ids = np.array([root_note_map[crn]
+                                        for crn in chord_root_notes])
 
-    # now we can compute the final chord class id
-    chord_class_id = chord_root_note_ids + chord_type_shift
+        # then, map the chords to major and minor. we assume chords with a
+        # minor third as first interval are considered minor chords,
+        # the rest are major chords, following MIREX, as stated in
+        # Taemin Cho, Juan Bello: "On the relative importance of Individual
+        # Components of Chord Recognition Systems"
 
-    n_chords = len(chord_class_id)
-    # 25 classes - 12 major, 12 minor, one no chord
-    # we will add a dummy 'NO CHORD' at the end and at the beginning,
-    # because some annotations miss it, are not exactly aligned at the end
-    # or do not start at the beginning of an audio file
-    one_hot = np.zeros((n_chords + 2, 25), dtype=np.int32)
-    one_hot[np.arange(n_chords) + 1, chord_class_id] = 1
-    # these are the dummy 'NO CHORD' annotations
-    one_hot[0, 24] = 1
-    one_hot[-1, 24] = 1
+        chord_type = [c.split(':')[1] if ':' in c else '' for c in chord_names]
 
-    # make sure everything is in its place
-    assert (one_hot.argmax(axis=1)[1:-1] == chord_class_id).all()
-    assert (one_hot.sum(axis=1) == 1).all()
+        # we will shift the class ids for all minor notes by 12
+        # (num major chords)
+        chord_type_shift = np.array(
+            map(lambda x: 12 if 'min' in x or 'dim' in x else 0, chord_type)
+        )
 
-    # Now, we create the time stamps. if no explicit end times are given,
-    # we take the start time of the next chord as end time for the current.
-    start_ann = ann[:, 0].astype(np.float)
-    end_ann = (ann[:, 1].astype(np.float) if ann.shape[1] > 2 else
-               np.hstack((start_ann[1:], [np.inf])))
+        # now we can compute the final chord class id
+        chord_class_id = chord_root_note_ids + chord_type_shift
 
-    # add the times for the dummy events
-    start = np.hstack(([-np.inf], start_ann, end_ann[-1]))
-    end = np.hstack((start_ann[0], end_ann, [np.inf]))
+        n_chords = len(chord_class_id)
+        # 25 classes - 12 major, 12 minor, one no chord
+        # we will add a dummy 'NO CHORD' at the end and at the beginning,
+        # because some annotations miss it, are not exactly aligned at the end
+        # or do not start at the beginning of an audio file
+        one_hot = np.zeros((n_chords + 2, 25), dtype=np.int32)
+        one_hot[np.arange(n_chords) + 1, chord_class_id] = 1
+        # these are the dummy 'NO CHORD' annotations
+        one_hot[0, 24] = 1
+        one_hot[-1, 24] = 1
 
-    # Finally, we create the one-hot encoding per frame!
-    frame_times = np.arange(num_frames, dtype=np.float) / fps
+        # make sure everything is in its place
+        assert (one_hot.argmax(axis=1)[1:-1] == chord_class_id).all()
+        assert (one_hot.sum(axis=1) == 1).all()
 
-    # IMPORTANT: round everything to milliseconds to prevent errors caused
-    # by floating point hell. Ideally, we would round everything to
-    # possible *frame times*, but it is easier this way.
-    start = np.round(start, decimals=3)
-    end = np.round(end, decimals=3)
-    frame_times = np.round(frame_times, decimals=3)
+        # Now, we create the time stamps. if no explicit end times are given,
+        # we take the start time of the next chord as end time for the current.
+        start_ann = ann[:, 0].astype(np.float)
+        end_ann = (ann[:, 1].astype(np.float) if ann.shape[1] > 2 else
+                   np.hstack((start_ann[1:], [np.inf])))
 
-    target_per_frame = ((start <= frame_times[:, np.newaxis]) &
-                        (frame_times[:, np.newaxis] < end))
+        # add the times for the dummy events
+        start = np.hstack(([-np.inf], start_ann, end_ann[-1]))
+        end = np.hstack((start_ann[0], end_ann, [np.inf]))
 
-    # make sure each frame is assigned to only one target vector
-    assert (target_per_frame.sum(axis=1) == 1).all()
+        # Finally, we create the one-hot encoding per frame!
+        frame_times = np.arange(num_frames, dtype=np.float) / self.fps
 
-    # create the one hot vectors per frame
-    return one_hot[np.nonzero(target_per_frame)[1]].astype(np.float32)
+        # IMPORTANT: round everything to milliseconds to prevent errors caused
+        # by floating point hell. Ideally, we would round everything to
+        # possible *frame times*, but it is easier this way.
+        start = np.round(start, decimals=3)
+        end = np.round(end, decimals=3)
+        frame_times = np.round(frame_times, decimals=3)
+
+        target_per_frame = ((start <= frame_times[:, np.newaxis]) &
+                            (frame_times[:, np.newaxis] < end))
+
+        # make sure each frame is assigned to only one target vector
+        assert (target_per_frame.sum(axis=1) == 1).all()
+
+        # create the one hot vectors per frame
+        return one_hot[np.nonzero(target_per_frame)[1]].astype(np.float32)
 
 
 def predictions_to_chord_label(predictions, fps):

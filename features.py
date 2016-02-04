@@ -46,7 +46,9 @@ class ConstantQ:
                                        num_channels=1).astype(np.float64)
 
         cqt = self.engine.processAudio(audio.reshape((1, -1)))['cqt']
-        return cqt.astype(np.float32)
+        # compensate for different padding in madmom vs. yaafe and convert
+        # to float32
+        return np.vstack((cqt, np.zeros(cqt.shape[1:]))).astype(np.float32)
 
 
 class LogFiltSpec:
