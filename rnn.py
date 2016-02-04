@@ -63,7 +63,9 @@ def build_net(feature_shape, batch_size, l2_lambda, num_rec_units,
         )
         fwd = lnn.layers.DropoutLayer(fwd, p=dropout)
 
-    if bidirectional:
+    if not bidirectional:
+        net = fwd
+    else:
         bck = net
         for i in range(num_layers):
             bck = lnn.layers.RecurrentLayer(

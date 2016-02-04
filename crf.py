@@ -3,6 +3,7 @@ import os
 import theano
 import theano.tensor as tt
 import lasagne as lnn
+import numpy as np
 import spaghetti as spg
 import yaml
 from sacred import Experiment
@@ -29,8 +30,60 @@ def compute_loss(network, target, mask):
     return lnn.objectives.aggregate(loss, mode='mean')
 
 
+def add_dense_layers(net, feature_shape, true_batch_size, true_seq_len,
+                     num_units, num_layers, dropout):
+
+    net = lnn.layers.ReshapeLayer(net, (-1,) + feature_shape,
+                                  name='reshape to single')
+
+    for i in range(num_layers):
+        net = lnn.layers.DenseLayer(net, num_units=num_units,
+                                    name='fc-{}'.format(i))
+        net = lnn.layers.DropoutLayer(net, p=dropout)
+
+    net = lnn.layers.ReshapeLayer(
+        net, (true_batch_size, true_seq_len, num_units),
+        name='reshape to sequence'
+    )
+
+    return net
+
+
+def add_recurrent_layers(net, mask_in, num_units, num_layers, grad_clip,
+                         dropout, bidirectional):
+    fwd = net
+    for i in range(num_layers):
+        fwd = lnn.layers.RecurrentLayer(
+            fwd, name='recurrent_fwd_{}'.format(i),
+            num_units=num_units, mask_input=mask_in,
+            grad_clipping=grad_clip,
+            W_in_to_hid=lnn.init.GlorotUniform(),
+            W_hid_to_hid=lnn.init.Orthogonal(gain=np.sqrt(2) / 2),
+        )
+        fwd = lnn.layers.DropoutLayer(fwd, p=dropout)
+
+    if not bidirectional:
+        return fwd
+    else:
+        bck = net
+        for i in range(num_layers):
+            bck = lnn.layers.RecurrentLayer(
+                    bck, name='recurrent_bck_{}'.format(i),
+                    num_units=num_units, mask_input=mask_in,
+                    grad_clipping=grad_clip,
+                    W_in_to_hid=lnn.init.GlorotUniform(),
+                    W_hid_to_hid=lnn.init.Orthogonal(gain=np.sqrt(2) / 2),
+                    backwards=True
+            )
+            bck = lnn.layers.DropoutLayer(bck, p=dropout)
+
+        # combine the forward and backward recurrent layers...
+        return lnn.layers.ConcatLayer([fwd, bck], name='fwd + bck', axis=-1)
+
+
 def build_net(feature_shape, batch_size, l2_lambda, max_seq_len,
-              optimiser, out_size):
+              dense, recurrent, optimiser, out_size):
+
     # input variables
     feature_var = (tt.tensor4('feature_input', dtype='float32')
                    if len(feature_shape) > 1 else
@@ -48,6 +101,17 @@ def build_net(feature_shape, batch_size, l2_lambda, max_seq_len,
     mask_in = lnn.layers.InputLayer(
         name='mask', input_var=mask_var, shape=(batch_size, max_seq_len)
     )
+
+    # add dense layers between input and crf
+    if dense['num_layers'] > 0:
+        true_batch_size, true_seq_len = feature_var.shape[:2]
+        net = add_dense_layers(
+            net, feature_shape, true_batch_size, true_seq_len, **dense
+        )
+
+    # add recurrent layers between input and crf
+    if recurrent['num_layers'] > 0:
+        net = add_recurrent_layers(net, mask_in, **recurrent)
 
     net = spg.layers.CrfLayer(incoming=net, mask_input=mask_in,
                               num_states=out_size, name='CRF')
@@ -85,20 +149,46 @@ def config():
 
     net = dict(
         l2_lambda=1e-4,
+        dense=dict(num_layers=0),
+        recurrent=dict(num_layers=0)
     )
 
     optimiser = dict(
         name='adam',
         params=dict(
-            learning_rate=0.01
+            learning_rate=0.002
         )
     )
 
     training = dict(
         num_epochs=1000,
         early_stop=20,
-        batch_size=256,
+        batch_size=64,
         max_seq_len=1024  # at 10 fps, this corresponds to 102 seconds
+    )
+
+
+@ex.named_config
+def dense_input():
+    net = dict(
+        dense=dict(
+            num_layers=3,
+            num_units=256,
+            dropout=0.5
+        )
+    )
+
+
+@ex.named_config
+def recurrent_input():
+    net = dict(
+        recurrent=dict(
+            num_units=128,
+            num_layers=3,
+            dropout=0.3,
+            grad_clip=1.,
+            bidirectional=True
+        )
     )
 
 
@@ -141,6 +231,8 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
         batch_size=training['batch_size'],
         max_seq_len=training['max_seq_len'],
         l2_lambda=net['l2_lambda'],
+        dense=net['dense'],
+        recurrent=net['recurrent'],
         optimiser=create_optimiser(optimiser),
         out_size=train_set.target_shape[0]
     )
@@ -183,6 +275,8 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
             batch_size=1,
             max_seq_len=None,
             l2_lambda=net['l2_lambda'],
+            dense=net['dense'],
+            recurrent=net['recurrent'],
             optimiser=create_optimiser(optimiser),
             out_size=test_set.target_shape[0]
         )
