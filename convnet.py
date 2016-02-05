@@ -17,7 +17,7 @@ import features
 from exp_utils import PickleAndSymlinkObserver, TempDir, create_optimiser
 
 # Initialise Sacred experiment
-ex = Experiment('Deep Neural Network')
+ex = Experiment('Convolutional Neural Network')
 ex.observers.append(PickleAndSymlinkObserver())
 data.add_sacred_config(ex)
 features.add_sacred_config(ex)
@@ -30,12 +30,11 @@ def compute_loss(prediction, target):
     return lnn.objectives.categorical_crossentropy(pred_clip, target).mean()
 
 
-def build_net(feature_shape, batch_size, l2_lambda, num_units, num_layers,
-              dropout, nonlinearity, optimiser, out_size):
+def build_net(feature_shape, batch_size, l2_lambda, conv1, pool1, conv2,
+              pool2, dense, optimiser, out_size):
+
     # input variables
-    feature_var = (tt.tensor3('feature_input', dtype='float32')
-                   if len(feature_shape) > 1 else
-                   tt.matrix('feature_input', dtype='float32'))
+    feature_var = tt.tensor3('feature_input', dtype='float32')
     target_var = tt.matrix('target_output', dtype='float32')
 
     # stack more layers
@@ -43,12 +42,39 @@ def build_net(feature_shape, batch_size, l2_lambda, num_units, num_layers,
                                 shape=(batch_size,) + feature_shape,
                                 input_var=feature_var)
 
-    nl = getattr(lnn.nonlinearities, nonlinearity)
+    net = lnn.layers.reshape(net, shape=(-1, 1) + feature_shape,
+                             name='reshape')
 
-    for _ in range(num_layers):
-        net = lnn.layers.DenseLayer(net, num_units=num_units, nonlinearity=nl)
-        if dropout > 0.0:
-            net = lnn.layers.DropoutLayer(net, p=dropout)
+    for i in range(conv1['num_layers']):
+        net = lnn.layers.Conv2DLayer(
+            net, num_filters=conv1['num_filters'],
+            filter_size=conv1['filter_size'],  # pad='same', for 1st layer
+            nonlinearity=lnn.nonlinearities.rectify,
+            name='Conv_1_{}'.format(i))
+
+    net = lnn.layers.MaxPool2DLayer(net, pool_size=pool1['size'],
+                                    name='Pool_1')
+    if pool1['dropout'] > 0.0:
+        net = lnn.layers.DropoutLayer(net, p=pool1['dropout'])
+
+    for i in range(conv2['num_layers']):
+        net = lnn.layers.Conv2DLayer(
+                net, num_filters=conv2['num_filters'],
+                filter_size=conv2['filter_size'],  # pad='same', for 1st layer
+                nonlinearity=lnn.nonlinearities.rectify,
+                name='Conv_2_{}'.format(i))
+
+    net = lnn.layers.MaxPool2DLayer(net, pool_size=pool2['size'],
+                                    name='Pool_2')
+    if pool2['dropout'] > 0.0:
+        net = lnn.layers.DropoutLayer(net, p=pool2['dropout'])
+
+    for i in range(dense['num_layers']):
+        net = lnn.layers.DenseLayer(net, num_units=dense['num_units'],
+                                    nonlinearity=lnn.nonlinearities.rectify,
+                                    name='Dense_{}'.format(i))
+        if dense['dropout'] > 0.0:
+            net = lnn.layers.DropoutLayer(net, p=dense['dropout'])
 
     # output layer
     net = lnn.layers.DenseLayer(net, name='output', num_units=out_size,
@@ -57,7 +83,7 @@ def build_net(feature_shape, batch_size, l2_lambda, num_units, num_layers,
     # create train function
     prediction = lnn.layers.get_output(net)
     l2_penalty = lnn.regularization.regularize_network_params(
-        net, lnn.regularization.l2) * l2_lambda
+            net, lnn.regularization.l2) * l2_lambda
     loss = compute_loss(prediction, target_var) + l2_penalty
     params = lnn.layers.get_all_params(net, trainable=True)
     updates = optimiser(loss, params)
@@ -79,43 +105,49 @@ def config():
     observations = 'results'
 
     datasource = dict(
-        context_size=7,
+            context_size=7,
     )
 
     feature_extractor = None
 
     net = dict(
-        num_layers=3,
-        num_units=256,
-        dropout=0.5,
-        nonlinearity='rectify',
-        l2_lambda=1e-4,
+        conv1=dict(
+            num_layers=2,
+            num_filters=32,
+            filter_size=(3, 3),
+        ),
+        pool1=dict(
+            size=(1, 2),
+            dropout=0.25
+        ),
+        conv2=dict(
+            num_layers=1,
+            num_filters=64,
+            filter_size=(3, 3)
+        ),
+        pool2=dict(
+            size=(1, 2),
+            dropout=0.25
+        ),
+        dense=dict(
+            num_layers=1,
+            num_units=512,
+            dropout=0.5
+        ),
+        l2_lambda=1e-4
     )
 
     optimiser = dict(
-        name='adam',
-        params=dict(
-            learning_rate=0.0001
-        )
+            name='adam',
+            params=dict(
+                    learning_rate=0.001
+            )
     )
 
     training = dict(
-        num_epochs=500,
-        early_stop=20,
-        batch_size=512,
-    )
-
-
-@ex.named_config
-def no_context():
-    datasource = dict(
-        context_size=0
-    )
-
-    net = dict(
-        num_units=100,
-        dropout=0.3,
-        l2_lambda=0.
+            num_epochs=500,
+            early_stop=4,
+            batch_size=512,
     )
 
 
@@ -131,13 +163,13 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
     print(Colors.red('Loading data...\n'))
 
     train_set, val_set, test_set, gt_files = data.create_datasources(
-        dataset_names=datasource['datasets'],
-        preprocessors=datasource['preprocessors'],
-        compute_features=features.create_extractor(feature_extractor),
-        compute_targets=data.ChordsMajMin(feature_extractor['params']['fps']),
-        context_size=datasource['context_size'],
-        test_fold=datasource['test_fold'],
-        val_fold=datasource['val_fold']
+            dataset_names=datasource['datasets'],
+            preprocessors=datasource['preprocessors'],
+            compute_features=features.create_extractor(feature_extractor),
+            compute_targets=data.ChordsMajMin(feature_extractor['params']['fps']),
+            context_size=datasource['context_size'],
+            test_fold=datasource['test_fold'],
+            val_fold=datasource['val_fold']
     )
 
     print(Colors.blue('Train Set:'))
@@ -157,10 +189,11 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
         feature_shape=train_set.feature_shape,
         batch_size=None,
         l2_lambda=net['l2_lambda'],
-        num_units=net['num_units'],
-        num_layers=net['num_layers'],
-        dropout=net['dropout'],
-        nonlinearity=net['nonlinearity'],
+        conv1=net['conv1'],
+        conv2=net['conv2'],
+        pool1=net['pool1'],
+        pool2=net['pool2'],
+        dense=net['dense'],
         optimiser=create_optimiser(optimiser),
         out_size=train_set.target_shape[0]
     )
@@ -172,10 +205,10 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
     print(Colors.red('Starting training...\n'))
 
     best_params, train_losses, val_losses = nn.train(
-        neural_net, train_set, n_epochs=training['num_epochs'],
-        batch_size=training['batch_size'], validation_set=val_set,
-        early_stop=training['early_stop'],
-        threaded=10
+            neural_net, train_set, n_epochs=training['num_epochs'],
+            batch_size=training['batch_size'], validation_set=val_set,
+            early_stop=training['early_stop'],
+            threaded=10
     )
 
     print(Colors.red('\nStarting testing...\n'))
@@ -188,12 +221,12 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
         ex.add_artifact(param_file)
 
         pred_files = test.compute_labeling(
-            neural_net, test_set, dest_dir=dest_dir,
-            fps=feature_extractor['params']['fps'], rnn=False
+                neural_net, test_set, dest_dir=dest_dir,
+                fps=feature_extractor['params']['fps'], rnn=False
         )
 
         test_gt_files = dmgr.files.match_files(
-            pred_files, gt_files, test.PREDICTION_EXT, data.GT_EXT
+                pred_files, gt_files, test.PREDICTION_EXT, data.GT_EXT
         )
 
         print(Colors.red('\nResults:\n'))

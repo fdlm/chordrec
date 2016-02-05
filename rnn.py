@@ -65,7 +65,8 @@ def build_net(feature_shape, batch_size, l2_lambda, num_rec_units,
             W_in_to_hid=lnn.init.GlorotUniform(),
             W_hid_to_hid=lnn.init.Orthogonal(gain=np.sqrt(2) / 2),
         )
-        fwd = lnn.layers.DropoutLayer(fwd, p=dropout)
+        if dropout > 0.:
+            fwd = lnn.layers.DropoutLayer(fwd, p=dropout)
 
     if not bidirectional:
         net = fwd
@@ -81,7 +82,8 @@ def build_net(feature_shape, batch_size, l2_lambda, num_rec_units,
                 W_hid_to_hid=lnn.init.Orthogonal(gain=np.sqrt(2) / 2),
                 backwards=True
             )
-            bck = lnn.layers.DropoutLayer(bck, p=dropout)
+            if dropout > 0:
+                bck = lnn.layers.DropoutLayer(bck, p=dropout)
 
         # combine the forward and backward recurrent layers...
         net = lnn.layers.ConcatLayer([fwd, bck], name='fwd + bck', axis=-1)
@@ -232,6 +234,7 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
         dropout=net['dropout'],
         bidirectional=net['bidirectional'],
         grad_clip=net['grad_clip'],
+        nonlinearity=net['nonlinearity'],
         optimiser=create_optimiser(optimiser),
         out_size=test_set.target_shape[0]
     )
