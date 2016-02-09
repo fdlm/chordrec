@@ -31,7 +31,7 @@ def compute_loss(prediction, target):
 
 
 def build_net(feature_shape, batch_size, l2_lambda, num_units, num_layers,
-              dropout, nonlinearity, optimiser, out_size):
+              dropout, batch_norm, nonlinearity, optimiser, out_size):
     # input variables
     feature_var = (tt.tensor3('feature_input', dtype='float32')
                    if len(feature_shape) > 1 else
@@ -46,7 +46,10 @@ def build_net(feature_shape, batch_size, l2_lambda, num_units, num_layers,
     nl = getattr(lnn.nonlinearities, nonlinearity)
 
     for _ in range(num_layers):
-        net = lnn.layers.DenseLayer(net, num_units=num_units, nonlinearity=nl)
+        if batch_norm:
+            net = lnn.layers.batch_norm(lnn.layers.DenseLayer(net, num_units=num_units, nonlinearity=nl))
+        else:
+            net = lnn.layers.DenseLayer(net, num_units=num_units, nonlinearity=nl)
         if dropout > 0.0:
             net = lnn.layers.DropoutLayer(net, p=dropout)
 
@@ -89,6 +92,7 @@ def config():
         num_units=256,
         dropout=0.5,
         nonlinearity='rectify',
+        batch_norm=False,
         l2_lambda=1e-4,
     )
 
@@ -160,6 +164,7 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
         num_units=net['num_units'],
         num_layers=net['num_layers'],
         dropout=net['dropout'],
+        batch_norm=net['batch_norm'],
         nonlinearity=net['nonlinearity'],
         optimiser=create_optimiser(optimiser),
         out_size=train_set.target_shape[0]
