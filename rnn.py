@@ -53,18 +53,28 @@ def build_net(feature_shape, batch_size, l2_lambda, num_rec_units,
                                     input_var=mask_var,
                                     shape=(batch_size, max_seq_len))
 
-    nl = getattr(lnn.nonlinearities, nonlinearity)
+    if nonlinearity != 'LSTM':
+        nl = getattr(lnn.nonlinearities, nonlinearity)
+
+        def add_layer(prev_layer, **kwargs):
+            return lnn.layers.RecurrentLayer(
+                prev_layer, num_units=num_rec_units, mask_input=mask_in,
+                grad_clipping=grad_clip, nonlinearity=nl,
+                W_in_to_hid=lnn.init.GlorotUniform(),
+                W_hid_to_hid=lnn.init.Orthogonal(gain=np.sqrt(2) / 2),
+                **kwargs)
+
+    else:
+        def add_layer(prev_layer, **kwargs):
+            return lnn.layers.LSTMLayer(
+                prev_layer, num_units=num_rec_units, mask_input=mask_in,
+                grad_clipping=grad_clip,
+                **kwargs
+            )
 
     fwd = net
     for i in range(num_layers):
-        fwd = lnn.layers.RecurrentLayer(
-            fwd, name='recurrent_fwd_{}'.format(i),
-            num_units=num_rec_units, mask_input=mask_in,
-            grad_clipping=grad_clip,
-            nonlinearity=nl,
-            W_in_to_hid=lnn.init.GlorotUniform(),
-            W_hid_to_hid=lnn.init.Orthogonal(gain=np.sqrt(2) / 2),
-        )
+        fwd = add_layer(fwd, name='rec_fwd_{}'.format(i))
         if dropout > 0.:
             fwd = lnn.layers.DropoutLayer(fwd, p=dropout)
 
@@ -73,15 +83,7 @@ def build_net(feature_shape, batch_size, l2_lambda, num_rec_units,
     else:
         bck = net
         for i in range(num_layers):
-            bck = lnn.layers.RecurrentLayer(
-                bck, name='recurrent_bck_{}'.format(i),
-                num_units=num_rec_units, mask_input=mask_in,
-                grad_clipping=grad_clip,
-                nonlinearity=nl,
-                W_in_to_hid=lnn.init.GlorotUniform(),
-                W_hid_to_hid=lnn.init.Orthogonal(gain=np.sqrt(2) / 2),
-                backwards=True
-            )
+            bck = add_layer(bck, name='rec_bck_{}'.format(i), backwards=True)
             if dropout > 0:
                 bck = lnn.layers.DropoutLayer(bck, p=dropout)
 
@@ -152,6 +154,14 @@ def config():
         early_stop=20,
         batch_size=64,
         max_seq_len=1024
+    )
+
+
+@ex.named_config
+def lstm():
+    net = dict(
+        nonlinearity='LSTM',
+        num_rec_units=64,
     )
 
 
