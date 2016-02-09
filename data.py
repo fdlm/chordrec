@@ -192,6 +192,10 @@ DATASET_DEFS = {
         'data_dir': 'robbie_williams',
         'split_filename': '8-fold_cv_random_{}.fold'
     },
+    'rwc': {
+        'data_dir': 'rwc',
+        'split_filename': '8-fold_cv_random_{}.fold'
+    },
     'billboard': {
         'data_dir': os.path.join('mcgill-billboard', 'unique'),
         'split_filename': '8-fold_cv_random_{}.fold'
