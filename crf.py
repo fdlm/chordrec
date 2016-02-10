@@ -15,6 +15,7 @@ from nn.utils import Colors
 import test
 import data
 import features
+import targets
 from plotting import CrfPlotter
 from exp_utils import PickleAndSymlinkObserver, TempDir, create_optimiser
 
@@ -23,6 +24,7 @@ ex = Experiment('Conditional Random Field')
 ex.observers.append(PickleAndSymlinkObserver())
 data.add_sacred_config(ex)
 features.add_sacred_config(ex)
+targets.add_sacred_config(ex)
 
 
 def compute_loss(network, target, mask):
@@ -194,20 +196,28 @@ def recurrent_input():
 
 @ex.automain
 def main(_config, _run, observations, datasource, net, feature_extractor,
-         optimiser, training, plot):
+         target, optimiser, training, plot):
 
     if feature_extractor is None:
         print(Colors.red('ERROR: Specify a feature extractor!'))
         return 1
 
+    if target is None:
+        print(Colors.red('ERROR: Specify a target!'))
+        return 1
+
     # Load data sets
     print(Colors.red('Loading data...\n'))
 
+    target_computer = targets.create_target(
+        feature_extractor['params']['fps'],
+        target
+    )
     train_set, val_set, test_set, gt_files = data.create_datasources(
         dataset_names=datasource['datasets'],
         preprocessors=datasource['preprocessors'],
         compute_features=features.create_extractor(feature_extractor),
-        compute_targets=data.ChordsMajMin(feature_extractor['params']['fps']),
+        compute_targets=target_computer,
         context_size=datasource['context_size'],
         test_fold=datasource['test_fold'],
         val_fold=datasource['val_fold']
@@ -289,8 +299,8 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
         ex.add_artifact(param_file)
 
         pred_files = test.compute_labeling(
-            test_neural_net, test_set, dest_dir=dest_dir,
-            fps=feature_extractor['params']['fps'], rnn=True, out_onehot=False
+            test_neural_net, target_computer, test_set, dest_dir=dest_dir,
+            rnn=True, out_onehot=False
         )
 
         test_gt_files = dmgr.files.match_files(
@@ -316,4 +326,3 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
             ex.add_artifact(pf)
 
     print('')
-

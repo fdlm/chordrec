@@ -13,6 +13,7 @@ from nn.utils import Colors
 
 import test
 import data
+import targets
 import features
 from exp_utils import PickleAndSymlinkObserver, TempDir, create_optimiser
 
@@ -21,6 +22,7 @@ ex = Experiment('Convolutional Neural Network')
 ex.observers.append(PickleAndSymlinkObserver())
 data.add_sacred_config(ex)
 features.add_sacred_config(ex)
+targets.add_sacred_config(ex)
 
 
 def compute_loss(prediction, target):
@@ -110,6 +112,8 @@ def config():
 
     feature_extractor = None
 
+    target = None
+
     net = dict(
         conv1=dict(
             num_layers=2,
@@ -153,7 +157,7 @@ def config():
 
 @ex.automain
 def main(_config, _run, observations, datasource, net, feature_extractor,
-         optimiser, training):
+         target, optimiser, training):
 
     if feature_extractor is None:
         print(Colors.red('ERROR: Specify a feature extractor!'))
@@ -162,14 +166,18 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
     # Load data sets
     print(Colors.red('Loading data...\n'))
 
+    target_computer = targets.create_target(
+        feature_extractor['params']['fps'],
+        target
+    )
     train_set, val_set, test_set, gt_files = data.create_datasources(
-            dataset_names=datasource['datasets'],
-            preprocessors=datasource['preprocessors'],
-            compute_features=features.create_extractor(feature_extractor),
-            compute_targets=data.ChordsMajMin(feature_extractor['params']['fps']),
-            context_size=datasource['context_size'],
-            test_fold=datasource['test_fold'],
-            val_fold=datasource['val_fold']
+        dataset_names=datasource['datasets'],
+        preprocessors=datasource['preprocessors'],
+        compute_features=features.create_extractor(feature_extractor),
+        compute_targets=target_computer,
+        context_size=datasource['context_size'],
+        test_fold=datasource['test_fold'],
+        val_fold=datasource['val_fold']
     )
 
     print(Colors.blue('Train Set:'))
@@ -221,12 +229,12 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
         ex.add_artifact(param_file)
 
         pred_files = test.compute_labeling(
-                neural_net, test_set, dest_dir=dest_dir,
-                fps=feature_extractor['params']['fps'], rnn=False
+            neural_net, target_computer, test_set, dest_dir=dest_dir,
+            rnn=False
         )
 
         test_gt_files = dmgr.files.match_files(
-                pred_files, gt_files, test.PREDICTION_EXT, data.GT_EXT
+            pred_files, gt_files, test.PREDICTION_EXT, data.GT_EXT
         )
 
         print(Colors.red('\nResults:\n'))

@@ -2,22 +2,21 @@ from __future__ import print_function
 import sys
 import os
 import numpy as np
-from data import write_chord_predictions
 from nn.utils import Colors
 
 
 PREDICTION_EXT = '.chords.txt'
 
 
-def compute_labeling(network, agg_dataset, dest_dir, fps, rnn,
+def compute_labeling(network, target, agg_dataset, dest_dir, rnn,
                      extension='.chords.txt', out_onehot=True):
     """
     Computes and saves the labels for each datasource in an aggragated
     datasource
     :param network:     neural network
+    :param target:      target computer
     :param agg_dataset: aggragated datasource.
     :param dest_dir:    where to store predicted chord labels
-    :param fps:         data frames per second
     :param rnn:         if the network is an rnn
     :param extension:   file extension of the resulting files
     :param out_onehot:  if the output of a network is one-hot encoded
@@ -52,7 +51,7 @@ def compute_labeling(network, agg_dataset, dest_dir, fps, rnn,
             pred = pred.argmax(axis=1)
 
         pred_file = os.path.join(dest_dir, ds.name + extension)
-        write_chord_predictions(filename=pred_file, predictions=pred, fps=fps)
+        target.write_chord_predictions(pred_file, pred)
         pred_files.append(pred_file)
 
     return pred_files
