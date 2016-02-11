@@ -73,7 +73,8 @@ def build_net(feature_shape, batch_size, l2_lambda, num_units, num_layers,
     # without computing the loss, and thus does not need target labels
     test_prediction = lnn.layers.get_output(net, deterministic=True)
     test_loss = compute_loss(test_prediction, target_var) + l2_penalty
-    test = theano.function([feature_var, target_var], test_loss)
+    test = theano.function([feature_var, target_var],
+                           [test_loss, test_prediction])
     process = theano.function([feature_var], test_prediction)
 
     return nn.NeuralNetwork(net, train, test, process)

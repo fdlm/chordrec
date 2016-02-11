@@ -9,7 +9,7 @@ PREDICTION_EXT = '.chords.txt'
 
 
 def compute_labeling(network, target, agg_dataset, dest_dir, rnn,
-                     extension='.chords.txt', out_onehot=True):
+                     extension='.chords.txt'):
     """
     Computes and saves the labels for each datasource in an aggragated
     datasource
@@ -19,7 +19,6 @@ def compute_labeling(network, target, agg_dataset, dest_dir, rnn,
     :param dest_dir:    where to store predicted chord labels
     :param rnn:         if the network is an rnn
     :param extension:   file extension of the resulting files
-    :param out_onehot:  if the output of a network is one-hot encoded
     :return:            list of files containing the predictions
     """
     if not os.path.exists(dest_dir):
@@ -46,9 +45,7 @@ def compute_labeling(network, target, agg_dataset, dest_dir, rnn,
         else:
             pred = network.process(data)
 
-        if out_onehot:
-            # one hot encoding to class id
-            pred = pred.argmax(axis=1)
+        pred = pred.argmax(axis=1)
 
         pred_file = os.path.join(dest_dir, ds.name + extension)
         target.write_chord_predictions(pred_file, pred)

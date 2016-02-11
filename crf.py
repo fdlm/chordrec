@@ -29,6 +29,7 @@ targets.add_sacred_config(ex)
 
 def compute_loss(network, target, mask):
     loss = spg.objectives.neg_log_likelihood(network, target, mask)
+    loss /= mask.sum(axis=1)  # normalise to sequence length
     return lnn.objectives.aggregate(loss, mode='mean')
 
 
@@ -130,8 +131,9 @@ def build_net(feature_shape, batch_size, l2_lambda, max_seq_len,
     # create test and process function. process just computes the prediction
     # without computing the loss, and thus does not need target labels
     test_loss = compute_loss(net, target_var, mask_var) + l2_penalty
-    test = theano.function([feature_var, mask_var, target_var], test_loss)
     viterbi_out = lnn.layers.get_output(net, mode='viterbi')
+    test = theano.function([feature_var, mask_var, target_var],
+                           [test_loss, viterbi_out])
     process = theano.function([feature_var, mask_var], viterbi_out)
 
     return nn.NeuralNetwork(net, train, test, process)
@@ -300,7 +302,7 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
 
         pred_files = test.compute_labeling(
             test_neural_net, target_computer, test_set, dest_dir=dest_dir,
-            rnn=True, out_onehot=False
+            rnn=True
         )
 
         test_gt_files = dmgr.files.match_files(

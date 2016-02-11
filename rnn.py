@@ -122,7 +122,8 @@ def build_net(feature_shape, batch_size, l2_lambda, num_rec_units,
     test_prediction = lnn.layers.get_output(net, deterministic=True)
     test_loss = (compute_loss(test_prediction, target_var, mask_var) +
                  l2_penalty)
-    test = theano.function([feature_var, mask_var, target_var], test_loss)
+    test = theano.function([feature_var, mask_var, target_var],
+                           [test_loss, test_prediction])
     process = theano.function([feature_var, mask_var], test_prediction)
 
     return nn.NeuralNetwork(net, train, test, process)

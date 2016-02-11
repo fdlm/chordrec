@@ -93,7 +93,7 @@ def create_datasources(dataset_names, preprocessors,
                        test_fold=0, val_fold=None,
                        **kwargs):
 
-    val_fold = val_fold or test_fold - 1
+    val_fold = val_fold if val_fold is not None else test_fold - 1
     preprocessors = create_preprocessors(preprocessors)
 
     if context_size > 0:
