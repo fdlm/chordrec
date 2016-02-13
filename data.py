@@ -7,9 +7,6 @@ SRC_EXT = '.flac'
 GT_EXT = '.chords'
 
 
-
-
-
 def combine_files(*args):
     """
     Combines file dictionaries as returned by the methods of Dataset.

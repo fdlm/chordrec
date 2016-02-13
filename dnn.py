@@ -15,7 +15,8 @@ import test
 import data
 import features
 import targets
-from exp_utils import PickleAndSymlinkObserver, TempDir, create_optimiser
+from exp_utils import (PickleAndSymlinkObserver, TempDir, create_optimiser,
+                       ParamSaver)
 
 # Initialise Sacred experiment
 ex = Experiment('Deep Neural Network')
@@ -189,12 +190,15 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
 
     print(Colors.red('Starting training...\n'))
 
-    best_params, train_losses, val_losses = nn.train(
-        neural_net, train_set, n_epochs=training['num_epochs'],
-        batch_size=training['batch_size'], validation_set=val_set,
-        early_stop=training['early_stop'],
-        threaded=10
-    )
+    with TempDir() as dest_dir:
+
+        best_params, train_losses, val_losses = nn.train(
+            neural_net, train_set, n_epochs=training['num_epochs'],
+            batch_size=training['batch_size'], validation_set=val_set,
+            early_stop=training['early_stop'],
+            threaded=10,
+            updates=[ParamSaver(ex, neural_net, dest_dir)]
+        )
 
     print(Colors.red('\nStarting testing...\n'))
 

@@ -140,3 +140,17 @@ class PickleAndSymlinkObserver(RunObserver):
 
     def get_artifact_path(self, path):
         return os.path.join(self.config_path(), 'artifacts', path)
+
+
+class ParamSaver:
+
+    def __init__(self, ex, net, tmp_dir):
+        self.ex = ex
+        self.tmp_dir = tmp_dir
+        self.net = net
+
+    def __call__(self, epoch):
+        fn = os.path.join(self.tmp_dir, 'params_{}.pkl'.format(epoch))
+        self.net.save_parameters(fn)
+        self.ex.add_artifact(fn)
+

@@ -17,7 +17,8 @@ import data
 import features
 import targets
 from plotting import CrfPlotter
-from exp_utils import PickleAndSymlinkObserver, TempDir, create_optimiser
+from exp_utils import (PickleAndSymlinkObserver, TempDir, create_optimiser,
+                       ParamSaver)
 
 # Initialise Sacred experiment
 ex = Experiment('Conditional Random Field')
@@ -33,6 +34,14 @@ def compute_loss(network, target, mask):
     return lnn.objectives.aggregate(loss, mode='mean')
 
 
+def dnn_loss(prediction, target, mask):
+    # need to clip predictions for numerical stability
+    eps = 1e-7
+    pred_clip = tt.clip(prediction, eps, 1.-eps)
+    loss = lnn.objectives.categorical_crossentropy(pred_clip, target)
+    return lnn.objectives.aggregate(loss, mask, mode='normalized_sum')
+
+
 def add_dense_layers(net, feature_shape, true_batch_size, true_seq_len,
                      num_units, num_layers, dropout):
 
@@ -42,7 +51,9 @@ def add_dense_layers(net, feature_shape, true_batch_size, true_seq_len,
     for i in range(num_layers):
         net = lnn.layers.DenseLayer(net, num_units=num_units,
                                     name='fc-{}'.format(i))
-        net = lnn.layers.DropoutLayer(net, p=dropout)
+
+        if dropout > 0.0:
+            net = lnn.layers.DropoutLayer(net, p=dropout)
 
     net = lnn.layers.ReshapeLayer(
         net, (true_batch_size, true_seq_len, num_units),
@@ -85,7 +96,9 @@ def add_recurrent_layers(net, mask_in, num_units, num_layers, grad_clip,
 
 
 def build_net(feature_shape, batch_size, l2_lambda, max_seq_len,
-              dense, recurrent, optimiser, out_size):
+              dense, recurrent, train_separately, optimiser, out_size):
+
+    assert dense['num_layers'] == 0 or recurrent['num_layers'] == 0
 
     # input variables
     feature_var = (tt.tensor4('feature_input', dtype='float32')
@@ -116,6 +129,34 @@ def build_net(feature_shape, batch_size, l2_lambda, max_seq_len,
     if recurrent['num_layers'] > 0:
         net = add_recurrent_layers(net, mask_in, **recurrent)
 
+    if train_separately:
+        fe_resh = lnn.layers.ReshapeLayer(net, (-1, net.output_shape[-1]),
+                                          name='reshape to single')
+
+        # create feature extractor train and test functions
+        fe_out = lnn.layers.DenseLayer(
+            fe_resh, name='fe_output', num_units=out_size,
+            nonlinearity=lnn.nonlinearities.softmax)
+        l2_fe = lnn.regularization.regularize_network_params(
+            fe_out, lnn.regularization.l2) * l2_lambda
+        fe_pred = lnn.layers.get_output(fe_out)
+        fe_loss = dnn_loss(fe_pred, target_var.reshape((-1, out_size)),
+                           mask_var.flatten()) + l2_fe
+        fe_params = lnn.layers.get_all_params(fe_out, trainable=True)
+        fe_updates = optimiser(fe_loss, fe_params)
+        fe_train = theano.function([feature_var, mask_var, target_var],
+                                   fe_loss, updates=fe_updates)
+        fe_test_pred = lnn.layers.get_output(fe_out, deterministic=True)
+        fe_test_loss = dnn_loss(fe_test_pred,
+                                target_var.reshape((-1, out_size)),
+                                mask_var.flatten()) + l2_fe
+        fe_test = theano.function([feature_var, mask_var, target_var],
+                                  [fe_test_loss, fe_test_pred])
+        fe_net = nn.NeuralNetwork(fe_out, fe_train, fe_test, None)
+    else:
+        fe_net = None
+
+    # now add the "musical model"
     net = spg.layers.CrfLayer(incoming=net, mask_input=mask_in,
                               num_states=out_size, name='CRF')
 
@@ -123,7 +164,11 @@ def build_net(feature_shape, batch_size, l2_lambda, max_seq_len,
     l2_penalty = lnn.regularization.regularize_network_params(
         net, lnn.regularization.l2) * l2_lambda
     loss = compute_loss(net, target_var, mask_var) + l2_penalty
-    params = lnn.layers.get_all_params(net, trainable=True)
+
+    # if feature extraction net is trianed separately,
+    # only get parameters of the musical model
+    params = (net.get_params(trainable=True) if train_separately else
+              lnn.layers.get_all_params(net, trainable=True))
     updates = optimiser(loss, params)
     train = theano.function([feature_var, mask_var, target_var], loss,
                             updates=updates)
@@ -136,7 +181,9 @@ def build_net(feature_shape, batch_size, l2_lambda, max_seq_len,
                            [test_loss, viterbi_out])
     process = theano.function([feature_var, mask_var], viterbi_out)
 
-    return nn.NeuralNetwork(net, train, test, process)
+    # return both the feature extraction network as well as the
+    # whole thing
+    return fe_net, nn.NeuralNetwork(net, train, test, process)
 
 
 @ex.config
@@ -154,7 +201,8 @@ def config():
     net = dict(
         l2_lambda=1e-4,
         dense=dict(num_layers=0),
-        recurrent=dict(num_layers=0)
+        recurrent=dict(num_layers=0),
+        train_separately=False
     )
 
     optimiser = dict(
@@ -167,7 +215,7 @@ def config():
     training = dict(
         num_epochs=1000,
         early_stop=20,
-        batch_size=64,
+        batch_size=32,
         max_seq_len=1024  # at 10 fps, this corresponds to 102 seconds
     )
 
@@ -238,24 +286,43 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
     # build network
     print(Colors.red('Building network...\n'))
 
-    train_neural_net = build_net(
+    fe_net, train_neural_net = build_net(
         feature_shape=train_set.feature_shape,
         batch_size=training['batch_size'],
         max_seq_len=training['max_seq_len'],
         l2_lambda=net['l2_lambda'],
         dense=net['dense'],
         recurrent=net['recurrent'],
+        train_separately=net['train_separately'],
         optimiser=create_optimiser(optimiser),
         out_size=train_set.target_shape[0]
     )
+
+    if net['train_separately']:
+        print(Colors.blue('Feature Extraction Net:'))
+        print(fe_net)
+        print('')
 
     print(Colors.blue('Neural Network:'))
     print(train_neural_net)
     print('')
 
+    if net['train_separately']:
+        print(Colors.red('Starting FE training...\n'))
+        best_fe_params, _, _ = nn.train(
+            fe_net, train_set, n_epochs=training['num_epochs'],
+            batch_size=training['batch_size'], validation_set=val_set,
+            early_stop=training['early_stop'],
+            batch_iterator=dmgr.iterators.iterate_datasources,
+            sequence_length=training['max_seq_len'],
+            threaded=10
+        )
+
     print(Colors.red('Starting training...\n'))
 
     with TempDir() as dest_dir:
+
+        # updates = [ParamSaver(ex, train_neural_net, dest_dir)]
 
         if plot:
             plot_file = os.path.join(dest_dir, 'plot.pdf')
@@ -282,13 +349,14 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
         del train_neural_net
 
         # build test crf with batch size 1 and no max sequence length
-        test_neural_net = build_net(
+        _, test_neural_net = build_net(
             feature_shape=test_set.feature_shape,
             batch_size=1,
             max_seq_len=None,
             l2_lambda=net['l2_lambda'],
             dense=net['dense'],
             recurrent=net['recurrent'],
+            train_separately=False,  # no training anyways!
             optimiser=create_optimiser(optimiser),
             out_size=test_set.target_shape[0]
         )
