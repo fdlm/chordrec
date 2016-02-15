@@ -137,14 +137,6 @@ def build_net(feature_shape, batch_size, l2_lambda, max_seq_len,
     if input_processor is not None:
         net = input_processor(net, true_batch_size, true_seq_len)
         lnn.layers.set_all_param_values(net, input_processor_params)
-        # get the input processor params, so we can exclude them
-        # later from the updates
-        if input_processor['freeze_after_train']:
-            ip_params = lnn.layers.get_all_params(net, trainable=True)
-        else:
-            ip_params = []
-    else:
-        ip_params = []
 
     # add dense layers between input and crf
     if dense['num_layers'] > 0:
@@ -167,8 +159,7 @@ def build_net(feature_shape, batch_size, l2_lambda, max_seq_len,
 
     # get the network parameters, exclude input processor params if there
     # are any
-    params = [p for p in lnn.layers.get_all_params(net, trainable=True)
-              if p not in ip_params]
+    params = lnn.layers.get_all_params(net, trainable=True)
 
     updates = optimiser(loss, params)
     train = theano.function([feature_var, mask_var, target_var], loss,
@@ -319,6 +310,8 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
     print('\t', test_set)
     print('')
 
+    # ~~~~~~~~~~~~~~~~~~~~ Train input processors ~~~~~~~~~~~~~~~~~~~~
+
     if input_processor is not None:
         print(Colors.red('Building input processor network...\n'))
         if input_processor['type'] == 'dense':
@@ -388,16 +381,19 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
                     batch_norm=ip_net_cfg['batch_norm']
                 )
 
-                out_shape = tuple(
-                    [s or -1
-                     for s in inp.output_shape[:2] + layers.output_shape[-1:]]
-                )
-
                 resh_back = lnn.layers.ReshapeLayer(
                     layers, (true_batch_size, true_seq_len, ip_net_cfg['num_units']),
                     name='reshape back'
                 )
+
+                if input_processor['freeze_after_train']:
+                    l = resh_back
+                    while not isinstance(l, lnn.layers.InputLayer):
+                        for p in l.params:
+                            l.params[p].discard('trainable')
+
                 return resh_back
+
             # cut away softmax params (weights, bias)
             best_ip_params = best_ip_params[:-2]
         else:
@@ -407,6 +403,8 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
     else:
         create_input_processor = None
         best_ip_params = None
+
+    # ~~~~~~~~~~~~~~~~~~~~ Train Network ~~~~~~~~~~~~~~~~~~~~
 
     # build network
     print(Colors.red('Building network...\n'))
