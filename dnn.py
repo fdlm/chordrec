@@ -33,6 +33,31 @@ def compute_loss(prediction, target):
     return lnn.objectives.categorical_crossentropy(pred_clip, target).mean()
 
 
+def stack_layers(inp, nonlinearity, num_layers, num_units, dropout,
+                 batch_norm):
+
+    nl = getattr(lnn.nonlinearities, nonlinearity)
+    net = inp
+
+    for i in range(num_layers):
+        if batch_norm:
+            net = lnn.layers.batch_norm(
+                lnn.layers.DenseLayer(
+                    net, num_units=num_units, nonlinearity=nl,
+                    name='fc-{}'.format(i)
+                )
+            )
+        else:
+            net = lnn.layers.DenseLayer(
+                net, num_units=num_units, nonlinearity=nl,
+                name='fc-{}'.format(i)
+            )
+        if dropout > 0.0:
+            net = lnn.layers.DropoutLayer(net, p=dropout)
+
+    return net
+
+
 def build_net(feature_shape, batch_size, l2_lambda, num_units, num_layers,
               dropout, batch_norm, nonlinearity, optimiser, out_size):
     # input variables
@@ -46,15 +71,8 @@ def build_net(feature_shape, batch_size, l2_lambda, num_units, num_layers,
                                 shape=(batch_size,) + feature_shape,
                                 input_var=feature_var)
 
-    nl = getattr(lnn.nonlinearities, nonlinearity)
-
-    for _ in range(num_layers):
-        if batch_norm:
-            net = lnn.layers.batch_norm(lnn.layers.DenseLayer(net, num_units=num_units, nonlinearity=nl))
-        else:
-            net = lnn.layers.DenseLayer(net, num_units=num_units, nonlinearity=nl)
-        if dropout > 0.0:
-            net = lnn.layers.DropoutLayer(net, p=dropout)
+    net = stack_layers(net, nonlinearity, num_layers, num_units, dropout,
+                       batch_norm)
 
     # output layer
     net = lnn.layers.DenseLayer(net, name='output', num_units=out_size,
@@ -113,6 +131,7 @@ def config():
         num_epochs=500,
         early_stop=20,
         batch_size=512,
+        early_stop_acc=True,
     )
 
 

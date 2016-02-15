@@ -143,16 +143,17 @@ def config():
     )
 
     optimiser = dict(
-            name='adam',
-            params=dict(
-                    learning_rate=0.001
-            )
+        name='adam',
+        params=dict(
+                learning_rate=0.001
+        )
     )
 
     training = dict(
-            num_epochs=500,
-            early_stop=4,
-            batch_size=512,
+        num_epochs=500,
+        early_stop=4,
+        early_stop_acc=True,
+        batch_size=512,
     )
 
 

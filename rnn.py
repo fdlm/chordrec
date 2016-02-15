@@ -157,6 +157,7 @@ def config():
     training = dict(
         num_epochs=1000,
         early_stop=20,
+        early_stop_acc=True,
         batch_size=64,
         max_seq_len=1024
     )
