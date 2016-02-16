@@ -111,7 +111,7 @@ def build_dense_ip(feature_shape, net, optimiser, out_size):
 
 
 def build_net(feature_shape, batch_size, l2_lambda, max_seq_len,
-              dense, recurrent, optimiser, out_size,
+              dense, recurrent, init_softmax, optimiser, out_size,
               input_processor, input_processor_params):
 
     # input variables
@@ -136,7 +136,8 @@ def build_net(feature_shape, batch_size, l2_lambda, max_seq_len,
 
     if input_processor is not None:
         net = input_processor(net, true_batch_size, true_seq_len)
-        lnn.layers.set_all_param_values(net, input_processor_params)
+        # leave out softmax parameters
+        lnn.layers.set_all_param_values(net, input_processor_params[:-2])
 
     # add dense layers between input and crf
     if dense['num_layers'] > 0:
@@ -149,16 +150,25 @@ def build_net(feature_shape, batch_size, l2_lambda, max_seq_len,
         net = add_recurrent_layers(net, mask_in, **recurrent)
 
     # now add the "musical model"
+    if init_softmax:
+        # initialise with the parameters of the input-processor softmax
+        crf_params = dict(
+            A=lnn.init.Constant(0),
+            W=input_processor_params[-2],
+            c=input_processor_params[-1]
+        )
+    else:
+        crf_params = {}
+
     net = spg.layers.CrfLayer(incoming=net, mask_input=mask_in,
-                              num_states=out_size, name='CRF')
+                              num_states=out_size, name='CRF', **crf_params)
 
     # create train function - this one uses the log-likelihood objective
     l2_penalty = lnn.regularization.regularize_network_params(
         net, lnn.regularization.l2) * l2_lambda
     loss = compute_loss(net, target_var, mask_var) + l2_penalty
 
-    # get the network parameters, exclude input processor params if there
-    # are any
+    # get the network parameters
     params = lnn.layers.get_all_params(net, trainable=True)
 
     updates = optimiser(loss, params)
@@ -168,7 +178,8 @@ def build_net(feature_shape, batch_size, l2_lambda, max_seq_len,
     # create test and process function. process just computes the prediction
     # without computing the loss, and thus does not need target labels
     test_loss = compute_loss(net, target_var, mask_var) + l2_penalty
-    viterbi_out = lnn.layers.get_output(net, mode='viterbi')
+    viterbi_out = lnn.layers.get_output(net, mode='viterbi',
+                                        deterministic=True)
     test = theano.function([feature_var, mask_var, target_var],
                            [test_loss, viterbi_out])
     process = theano.function([feature_var, mask_var], viterbi_out)
@@ -196,6 +207,7 @@ def config():
         l2_lambda=1e-4,
         dense=dict(num_layers=0),
         recurrent=dict(num_layers=0),
+        init_softmax=False,
     )
 
     optimiser = dict(
@@ -219,6 +231,7 @@ def dense_ip():
     input_processor = dict(
         type='dense',
         freeze_after_train=True,
+        fine_tune=False,
         net=dict(
             num_layers=3,
             num_units=256,
@@ -344,20 +357,22 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
             with TempDir() as ip_dest_dir:
                 pred_files = test.compute_labeling(
                     ip_net, target_computer, test_set, dest_dir=ip_dest_dir,
-                    rnn=False
+                    rnn=False, label='ip'
                 )
 
                 test_gt_files = dmgr.files.match_files(
                     pred_files, gt_files, test.PREDICTION_EXT, data.GT_EXT
                 )
 
-                print(Colors.red('\nInput Processor Results:\n'))
+                print(Colors.blue('Input Processor Results:\n'))
                 scores = test.compute_average_scores(test_gt_files, pred_files)
 
                 # convert to float so yaml output looks nice
                 for k in scores:
                     scores[k] = float(scores[k])
                 test.print_scores(scores)
+
+                print('')
 
                 for pf in pred_files:
                     ip_pf = os.path.join(ip_dest_dir, 'ip_' +
@@ -382,7 +397,8 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
                 )
 
                 resh_back = lnn.layers.ReshapeLayer(
-                    layers, (true_batch_size, true_seq_len, ip_net_cfg['num_units']),
+                    layers,
+                    (true_batch_size, true_seq_len, ip_net_cfg['num_units']),
                     name='reshape back'
                 )
 
@@ -391,11 +407,11 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
                     while not isinstance(l, lnn.layers.InputLayer):
                         for p in l.params:
                             l.params[p].discard('trainable')
+                            l.params[p].add('frozen')
+                        l = l.input_layer
 
                 return resh_back
 
-            # cut away softmax params (weights, bias)
-            best_ip_params = best_ip_params[:-2]
         else:
             # TODO: RNN input processor!!
             create_input_processor = None
@@ -404,42 +420,139 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
         create_input_processor = None
         best_ip_params = None
 
+    best_crf_params = None
+    if input_processor['freeze_after_train'] and input_processor['fine_tune']:
+        # First train the CRF seperately, then train jointly!
+
+        print(Colors.red('Building CRF pre-training network...\n'))
+
+        train_crf_net = build_net(
+            feature_shape=train_set.feature_shape,
+            batch_size=training['batch_size'],
+            max_seq_len=training['max_seq_len'],
+            l2_lambda=net['l2_lambda'],
+            dense=net['dense'],
+            recurrent=net['recurrent'],
+            init_softmax=net['init_softmax'],
+            optimiser=create_optimiser(optimiser),
+            out_size=train_set.target_shape[0],
+            input_processor=create_input_processor,
+            input_processor_params=best_ip_params
+        )
+
+        print(Colors.blue('CRF pre-training Neural Network:'))
+        print(train_crf_net)
+        print('')
+
+        print(Colors.red('Starting CRF pre-training...\n'))
+
+        with TempDir() as crf_dest_dir:
+
+            best_crf_params, _, _ = nn.train(
+                train_crf_net, train_set, n_epochs=training['num_epochs'],
+                batch_size=training['batch_size'], validation_set=val_set,
+                early_stop=training['early_stop'],
+                early_stop_acc=training['early_stop_acc'],
+                batch_iterator=dmgr.iterators.iterate_datasources,
+                sequence_length=training['max_seq_len'],
+                threaded=10
+            )
+
+            print(Colors.red('\nStarting pre-trained CRF testing...\n'))
+
+            del train_crf_net
+
+            # build test crf with batch size 1 and no max sequence length
+            test_crf_net = build_net(
+                feature_shape=test_set.feature_shape,
+                batch_size=1,
+                max_seq_len=None,
+                l2_lambda=net['l2_lambda'],
+                dense=net['dense'],
+                recurrent=net['recurrent'],
+                init_softmax=net['init_softmax'],
+                optimiser=create_optimiser(optimiser),
+                out_size=test_set.target_shape[0],
+                input_processor=create_input_processor,
+                input_processor_params=best_ip_params
+            )
+
+            # load previously learnt parameters
+            test_crf_net.set_parameters(best_crf_params)
+
+            param_file = os.path.join(crf_dest_dir, 'crf_pretrain_params.pkl')
+            test_crf_net.save_parameters(param_file)
+            ex.add_artifact(param_file)
+
+            pred_files = test.compute_labeling(
+                test_crf_net, target_computer, test_set, dest_dir=crf_dest_dir,
+                rnn=True
+            )
+
+            test_gt_files = dmgr.files.match_files(
+                pred_files, gt_files, test.PREDICTION_EXT, data.GT_EXT
+            )
+
+            print(Colors.blue('Pre-Trained CRF Results:\n'))
+
+            scores = test.compute_average_scores(test_gt_files, pred_files)
+            # convert to float so yaml output looks nice
+            for k in scores:
+                scores[k] = float(scores[k])
+            test.print_scores(scores)
+
+            print('')
+
+            for pf in pred_files:
+                crf_pf = os.path.join(crf_dest_dir, 'crf_' +
+                                      os.path.basename(pf))
+                os.rename(pf, crf_pf)
+                ex.add_artifact(crf_pf)
+
+            # turn off parameter freeze
+            input_processor['freeze_after_train'] = False
+            optimiser['params']['learning_rate'] = 0.000001
+
     # ~~~~~~~~~~~~~~~~~~~~ Train Network ~~~~~~~~~~~~~~~~~~~~
 
     # build network
     print(Colors.red('Building network...\n'))
 
-    train_neural_net = build_net(
+    train_crf_net = build_net(
         feature_shape=train_set.feature_shape,
         batch_size=training['batch_size'],
         max_seq_len=training['max_seq_len'],
         l2_lambda=net['l2_lambda'],
         dense=net['dense'],
         recurrent=net['recurrent'],
+        init_softmax=net['init_softmax'],
         optimiser=create_optimiser(optimiser),
         out_size=train_set.target_shape[0],
         input_processor=create_input_processor,
         input_processor_params=best_ip_params
     )
 
+    if best_crf_params is not None:
+        train_crf_net.set_parameters(best_crf_params)
+
     print(Colors.blue('Neural Network:'))
-    print(train_neural_net)
+    print(train_crf_net)
     print('')
 
     print(Colors.red('Starting training...\n'))
 
-    with TempDir() as dest_dir:
+    with TempDir() as crf_dest_dir:
 
         # updates = [ParamSaver(ex, train_neural_net, dest_dir)]
 
         if plot:
-            plot_file = os.path.join(dest_dir, 'plot.pdf')
-            updates = [CrfPlotter(train_neural_net.network, plot_file)]
+            plot_file = os.path.join(crf_dest_dir, 'plot.pdf')
+            updates = [CrfPlotter(train_crf_net.network, plot_file)]
         else:
             updates = []
 
         best_params, train_losses, val_losses = nn.train(
-            train_neural_net, train_set, n_epochs=training['num_epochs'],
+            train_crf_net, train_set, n_epochs=training['num_epochs'],
             batch_size=training['batch_size'], validation_set=val_set,
             early_stop=training['early_stop'],
             early_stop_acc=training['early_stop_acc'],
@@ -453,12 +566,12 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
             updates[-1].close()
             ex.add_artifact(plot_file)
 
-        print(Colors.red('\nStarting testing...\n'))
+        print(Colors.red('\nStarting testing...'))
 
-        del train_neural_net
+        del train_crf_net
 
         # build test crf with batch size 1 and no max sequence length
-        test_neural_net = build_net(
+        test_crf_net = build_net(
             feature_shape=test_set.feature_shape,
             batch_size=1,
             max_seq_len=None,
@@ -466,20 +579,21 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
             dense=net['dense'],
             recurrent=net['recurrent'],
             optimiser=create_optimiser(optimiser),
+            init_softmax=net['init_softmax'],
             out_size=test_set.target_shape[0],
             input_processor=create_input_processor,
             input_processor_params=best_ip_params
         )
 
         # load previously learnt parameters
-        test_neural_net.set_parameters(best_params)
+        test_crf_net.set_parameters(best_params)
 
-        param_file = os.path.join(dest_dir, 'params.pkl')
-        test_neural_net.save_parameters(param_file)
+        param_file = os.path.join(crf_dest_dir, 'params.pkl')
+        test_crf_net.save_parameters(param_file)
         ex.add_artifact(param_file)
 
         pred_files = test.compute_labeling(
-            test_neural_net, target_computer, test_set, dest_dir=dest_dir,
+            test_crf_net, target_computer, test_set, dest_dir=crf_dest_dir,
             rnn=True
         )
 
@@ -487,7 +601,7 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
             pred_files, gt_files, test.PREDICTION_EXT, data.GT_EXT
         )
 
-        print(Colors.red('\nResults:\n'))
+        print(Colors.blue('\nResults:\n'))
 
         scores = test.compute_average_scores(test_gt_files, pred_files)
         # convert to float so yaml output looks nice
@@ -495,7 +609,7 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
             scores[k] = float(scores[k])
         test.print_scores(scores)
 
-        result_file = os.path.join(dest_dir, 'results.yaml')
+        result_file = os.path.join(crf_dest_dir, 'results.yaml')
         yaml.dump(dict(scores=scores,
                        train_losses=map(float, train_losses),
                        val_losses=map(float, val_losses)),
