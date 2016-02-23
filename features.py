@@ -85,6 +85,34 @@ class LogFiltSpec:
         return np.hstack(specs).astype(np.float32)
 
 
+class ChromaClp:
+
+    def __init__(self, fps):
+        assert fps == 10.022727272727273
+
+    @property
+    def name(self):
+        return 'chroma_clp100'
+
+    def __call__(self, audio_file):
+        # this feature is precompute-only!
+        raise NotImplementedError('This feature is only precomputed!')
+
+
+class PerfectChroma:
+
+    def __init__(self, fps):
+        self.fps = fps
+
+    @property
+    def name(self):
+        return 'perfect_chroma_fps={}'.format(self.fps)
+
+    def __call__(self, audio_file):
+        # this feature is precompute-only
+        raise NotImplementedError('This feature is only precomputed')
+
+
 def add_sacred_config(ex):
     ex.add_named_config(
         'constant_q',
@@ -109,6 +137,26 @@ def add_sacred_config(ex):
                 num_bands=24,
                 fmax=5500,
                 unique_filters=False,
+            )
+        )
+    )
+
+    ex.add_named_config(
+        'chroma_clp',
+        feature_extractor=dict(
+            name='ChromaClp',
+            params=dict(
+                fps=10.022727272727273
+            )
+        )
+    )
+
+    ex.add_named_config(
+        'perfect_chroma',
+        feature_extractor=dict(
+            name='PerfectChroma',
+            params=dict(
+                fps=10
             )
         )
     )
