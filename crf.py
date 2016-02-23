@@ -153,6 +153,8 @@ def build_net(feature_shape, batch_size, l2_lambda, max_seq_len,
     if init_softmax:
         # initialise with the parameters of the input-processor softmax
         crf_params = dict(
+            pi=lnn.init.Constant(0),
+            tau=lnn.init.Constant(0),
             A=lnn.init.Constant(0),
             W=input_processor_params[-2],
             c=input_processor_params[-1]
@@ -162,6 +164,11 @@ def build_net(feature_shape, batch_size, l2_lambda, max_seq_len,
 
     net = spg.layers.CrfLayer(incoming=net, mask_input=mask_in,
                               num_states=out_size, name='CRF', **crf_params)
+
+    pi, tau, _, A, _ = net.get_params()
+    net.params[pi].discard('trainable')
+    net.params[tau].discard('trainable')
+    net.params[A].discard('trainable')
 
     # create train function - this one uses the log-likelihood objective
     l2_penalty = lnn.regularization.regularize_network_params(
@@ -207,7 +214,7 @@ def config():
         l2_lambda=1e-4,
         dense=dict(num_layers=0),
         recurrent=dict(num_layers=0),
-        init_softmax=False,
+        initialise='softmax'  # or 'random' or 'softmax'
     )
 
     optimiser = dict(
@@ -357,7 +364,7 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
             with TempDir() as ip_dest_dir:
                 pred_files = test.compute_labeling(
                     ip_net, target_computer, test_set, dest_dir=ip_dest_dir,
-                    rnn=False, label='ip'
+                    rnn=False
                 )
 
                 test_gt_files = dmgr.files.match_files(
@@ -421,7 +428,7 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
         best_ip_params = None
 
     best_crf_params = None
-    if input_processor['freeze_after_train'] and input_processor['fine_tune']:
+    if input_processor is not None and input_processor['freeze_after_train'] and input_processor['fine_tune']:
         # First train the CRF seperately, then train jointly!
 
         print(Colors.red('Building CRF pre-training network...\n'))
