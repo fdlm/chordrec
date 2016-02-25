@@ -60,7 +60,7 @@ class LogFiltSpec:
         self.num_bands = num_bands
         self.fmax = fmax
         self.fps = fps
-        self.unique_filteres = unique_filters
+        self.unique_filters = unique_filters
         self.sample_rate = sample_rate
 
     @property
@@ -78,7 +78,7 @@ class LogFiltSpec:
                 audio_file, num_channels=1, sample_rate=self.sample_rate,
                 fps=self.fps, frame_size=ffts,
                 num_bands=self.num_bands, fmax=self.fmax,
-                unique_filters=self.unique_filteres)
+                unique_filters=self.unique_filters)
             for ffts in self.frame_sizes
         ]
 

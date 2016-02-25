@@ -174,7 +174,8 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
         compute_targets=target_computer,
         context_size=datasource['context_size'],
         test_fold=datasource['test_fold'],
-        val_fold=datasource['val_fold']
+        val_fold=datasource['val_fold'],
+        cached=datasource['cached']
     )
 
     print(Colors.blue('Train Set:'))
@@ -215,6 +216,7 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
             neural_net, train_set, n_epochs=training['num_epochs'],
             batch_size=training['batch_size'], validation_set=val_set,
             early_stop=training['early_stop'],
+            early_stop_acc=training['early_stop_acc'],
             threaded=10,
             updates=[ParamSaver(ex, neural_net, dest_dir)]
         )

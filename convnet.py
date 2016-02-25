@@ -151,7 +151,7 @@ def config():
 
     training = dict(
         num_epochs=500,
-        early_stop=4,
+        early_stop=20,
         early_stop_acc=True,
         batch_size=512,
     )
@@ -179,7 +179,8 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
         compute_targets=target_computer,
         context_size=datasource['context_size'],
         test_fold=datasource['test_fold'],
-        val_fold=datasource['val_fold']
+        val_fold=datasource['val_fold'],
+        cached=datasource['cached']
     )
 
     print(Colors.blue('Train Set:'))
@@ -215,10 +216,11 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
     print(Colors.red('Starting training...\n'))
 
     best_params, train_losses, val_losses = nn.train(
-            neural_net, train_set, n_epochs=training['num_epochs'],
-            batch_size=training['batch_size'], validation_set=val_set,
-            early_stop=training['early_stop'],
-            threaded=10
+        neural_net, train_set, n_epochs=training['num_epochs'],
+        batch_size=training['batch_size'], validation_set=val_set,
+        early_stop=training['early_stop'],
+        threaded=10,
+        early_stop_acc=training['early_stop_acc']
     )
 
     print(Colors.red('\nStarting testing...\n'))

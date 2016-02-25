@@ -77,10 +77,11 @@ def load_dataset(name, data_dir, feature_cache_dir,
     )
 
 
-def create_preprocessors(preproc_def):
+def create_preprocessors(preproc_defs):
     preprocessors = []
-    for pp_name, pp_params in preproc_def:
-        preprocessors.append(getattr(dmgr.preprocessing, pp_name)(**pp_params))
+    for pp in preproc_defs:
+        preprocessors.append(
+            getattr(dmgr.preprocessing, pp['name'])(**pp['params']))
     return preprocessors
 
 
@@ -122,6 +123,7 @@ def add_sacred_config(ex):
             context_size=0,
             preprocessors=[],
             test_fold=0,
-            val_fold=None
+            val_fold=None,
+            cached=True
         )
     )
