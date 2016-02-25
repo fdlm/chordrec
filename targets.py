@@ -1,8 +1,27 @@
 import numpy as np
 import string
+import mir_eval
 
 
-class TimeAnnotationTarget(object):
+def one_hot(class_ids, num_classes):
+    """
+    Create one-hot encoding of class ids
+    :param class_ids:   ids of classes to map
+    :param num_classes: number of classes
+    :return: one-hot encoding of class ids
+    """
+    oh = np.zeros((len(class_ids), num_classes), dtype=np.float32)
+    oh[np.arange(len(class_ids)), class_ids] = 1
+
+    # make sure one-hot encoding corresponds to class ids
+    assert (oh.argmax(axis=1) == class_ids).all()
+    # make sure there is only one id set per vector
+    assert (oh.sum(axis=1) == 1).all()
+
+    return oh
+
+
+class IntervalAnnotationTarget(object):
 
     def __init__(self, fps, num_classes):
         self.fps = fps
@@ -19,6 +38,9 @@ class TimeAnnotationTarget(object):
     def _targets_to_annotations(self, targets):
         raise NotImplementedError('Implement this.')
 
+    def _dummy_target(self):
+        raise NotImplementedError('Implement this.')
+
     def __call__(self, target_file, num_frames):
         """
         Creates one-hot encodings from an annotation file.
@@ -27,35 +49,27 @@ class TimeAnnotationTarget(object):
         :param num_frames:  number of frames in the audio file
         :return:            one-hot ground truth per frame
         """
-        ann = np.loadtxt(target_file, dtype=str)
-        class_id = self._annotations_to_targets(ann)
-        n_chords = len(class_id)
-        # we will add a dummy 'NO CHORD' at the end and at the beginning,
+        ann = np.loadtxt(target_file,
+                         comments=None,
+                         dtype=[('start', np.float),
+                                ('end', np.float),
+                                # assumes chord descriptions are
+                                # shorter than 50 characters
+                                ('label', 'S50')])
+
+        # we will add a dummy class at the end and at the beginning,
         # because some annotations miss it, are not exactly aligned at the end
         # or do not start at the beginning of an audio file
-        one_hot = np.zeros((n_chords + 2, self.num_classes), dtype=np.int32)
-        one_hot[np.arange(n_chords) + 1, class_id] = 1
-
-        # these are the dummy 'NO CHORD' annotations. the 'NO CHORD' class is
-        # always the last id
-        one_hot[0, -1] = 1
-        one_hot[-1, -1] = 1
-
-        # make sure everything is in its place
-        assert (one_hot.argmax(axis=1)[1:-1] == class_id).all()
-        assert (one_hot.sum(axis=1) == 1).all()
-
-        # Now, we create the time stamps. if no explicit end times are given,
-        # we take the start time of the next chord as end time for the current.
-        start_ann = ann[:, 0].astype(np.float)
-        end_ann = (ann[:, 1].astype(np.float) if ann.shape[1] > 2 else
-                   np.hstack((start_ann[1:], [np.inf])))
+        targets = np.vstack((self._dummy_target(),
+                             self._annotations_to_targets(ann['label']),
+                             self._dummy_target()))
 
         # add the times for the dummy events
-        start = np.hstack(([-np.inf], start_ann, end_ann[-1]))
-        end = np.hstack((start_ann[0], end_ann, [np.inf]))
+        start = np.hstack(([-np.inf], ann['start'], ann['end'][-1]))
+        end = np.hstack((ann['start'][0], ann['end'], [np.inf]))
 
-        # Finally, we create the one-hot encoding per frame!
+        # next, we have to assign each frame a target. first, compute the
+        # frame times
         frame_times = np.arange(num_frames, dtype=np.float) / self.fps
 
         # IMPORTANT: round everything to milliseconds to prevent errors caused
@@ -72,7 +86,7 @@ class TimeAnnotationTarget(object):
         assert (target_per_frame.sum(axis=1) == 1).all()
 
         # create the one hot vectors per frame
-        return one_hot[np.nonzero(target_per_frame)[1]].astype(np.float32)
+        return targets[np.nonzero(target_per_frame)[1]].astype(np.float32)
 
     def write_chord_predictions(self, filename, predictions):
         with open(filename, 'w') as f:
@@ -80,7 +94,7 @@ class TimeAnnotationTarget(object):
                           for p in self._targets_to_annotations(predictions)])
 
 
-class ChordsMajMin(TimeAnnotationTarget):
+class ChordsMajMin(IntervalAnnotationTarget):
 
     def __init__(self, fps):
         # 25 classes - 12 minor, 12 major, one "No Chord"
@@ -90,12 +104,17 @@ class ChordsMajMin(TimeAnnotationTarget):
     def name(self):
         return 'chords_majmin_fps={}'.format(self.fps)
 
-    def _annotations_to_targets(self, annotations):
+    def _dummy_target(self):
+        dt = np.zeros(self.num_classes, dtype=np.float32)
+        dt[-1] = 1
+        return dt
+
+    def _annotations_to_targets(self, labels):
         """
         Maps chord annotations to 25 classes (12 major, 12 minor, 1 no chord)
 
-        :param annotations: chord annotations
-        :return: class id per annotation
+        :param labels: chord labels
+        :return: one-hot encoding of class id per annotation
         """
         # first, create chord/class mapping. root note 'A' has id 0, increasing
         # with each semitone. we have duplicate mappings for flat and sharp
@@ -114,8 +133,7 @@ class ChordsMajMin(TimeAnnotationTarget):
         # then, we load the annotations, map the chords to class ids, and
         # finally map class ids to a one-hot encoding. first, map the root
         # notes.
-        chord_names = annotations[:, -1]
-        chord_root_notes = [c.split(':')[0].split('/')[0] for c in chord_names]
+        chord_root_notes = [c.split(':')[0].split('/')[0] for c in labels]
         chord_root_note_ids = np.array([root_note_map[crn]
                                         for crn in chord_root_notes])
 
@@ -125,7 +143,7 @@ class ChordsMajMin(TimeAnnotationTarget):
         # Taemin Cho, Juan Bello: "On the relative importance of Individual
         # Components of Chord Recognition Systems"
 
-        chord_type = [c.split(':')[1] if ':' in c else '' for c in chord_names]
+        chord_type = [c.split(':')[1] if ':' in c else '' for c in labels]
 
         # we will shift the class ids for all minor notes by 12
         # (num major chords)
@@ -134,7 +152,8 @@ class ChordsMajMin(TimeAnnotationTarget):
         )
 
         # now we can compute the final chord class id
-        return chord_root_note_ids + chord_type_shift
+        return one_hot(chord_root_note_ids + chord_type_shift,
+                       self.num_classes)
 
     def _targets_to_annotations(self, targets):
         natural = zip([0, 2, 3, 5, 7, 8, 10], string.uppercase[:7])
@@ -168,7 +187,7 @@ class ChordsMajMin(TimeAnnotationTarget):
         return zip(start_times, end_times, chord_labels)
 
 
-class ChordsRoot(TimeAnnotationTarget):
+class ChordsRoot(IntervalAnnotationTarget):
 
     def __init__(self, fps):
         # 13 classes - 12 semitones and "no chord"
@@ -178,11 +197,16 @@ class ChordsRoot(TimeAnnotationTarget):
     def name(self):
         return 'chords_root_fps={}'.format(self.fps)
 
-    def _annotations_to_targets(self, annotations):
+    def _dummy_target(self):
+        dt = np.zeros(self.num_classes, dtype=np.float32)
+        dt[-1] = 1
+        return dt
+
+    def _annotations_to_targets(self, labels):
         """
         Maps chord annotations to 13 classes (12 root tones, 1 no chord)
 
-        :param annotations: chord annotations
+        :param labels: chord label
         :return: class id per annotation
         """
         # first, create chord/class mapping. root note 'A' has id 0, increasing
@@ -202,12 +226,11 @@ class ChordsRoot(TimeAnnotationTarget):
         # then, we load the annotations, map the chords to class ids, and
         # finally map class ids to a one-hot encoding. first, map the root
         # notes.
-        chord_names = annotations[:, -1]
-        chord_root_notes = [c.split(':')[0].split('/')[0] for c in chord_names]
+        chord_root_notes = [c.split(':')[0].split('/')[0] for c in labels]
         chord_root_note_ids = np.array([root_note_map[crn]
                                         for crn in chord_root_notes])
 
-        return chord_root_note_ids
+        return one_hot(chord_root_note_ids, self.num_classes)
 
     def _targets_to_annotations(self, targets):
         natural = zip([0, 2, 3, 5, 7, 8, 10], string.uppercase[:7])
@@ -233,6 +256,25 @@ class ChordsRoot(TimeAnnotationTarget):
         end_times = start_times[1:] + (labels[-1][0] + spf,)
 
         return zip(start_times, end_times, chord_labels)
+
+
+class ChromaTarget(IntervalAnnotationTarget):
+
+    def __init__(self, fps):
+        # vector of 12 semitones
+        super(ChromaTarget, self).__init__(fps, 12)
+
+    @property
+    def name(self):
+        return 'chroma_target_fps={}'.format(self.fps)
+
+    def _dummy_target(self):
+        return mir_eval.chord.NO_CHORD_ENCODED[1]
+
+    def _annotations_to_targets(self, labels):
+        roots, bitmaps, _ = mir_eval.chord.encode_many(labels)
+        chromas = mir_eval.chord.rotate_bitmaps_to_roots(bitmaps, roots)
+        return chromas
 
 
 def add_sacred_config(ex):
