@@ -5,6 +5,7 @@ import theano.tensor as tt
 import lasagne as lnn
 import yaml
 from sacred import Experiment
+from operator import itemgetter
 
 
 import nn
@@ -32,8 +33,79 @@ def compute_loss(prediction, target):
     return lnn.objectives.categorical_crossentropy(pred_clip, target).mean()
 
 
-def build_net(feature_shape, batch_size, l2_lambda, conv1, pool1, conv2,
-              pool2, dense, optimiser, out_size):
+def add_conv_layers(net, conv, batch_norm, name):
+    for i in range(conv['num_layers']):
+        net = lnn.layers.Conv2DLayer(
+            net, num_filters=conv['num_filters'],
+            filter_size=conv['filter_size'],
+            nonlinearity=lnn.nonlinearities.rectify,
+            name='Conv_{}_{}'.format(name, i))
+        if batch_norm:
+            net = lnn.layers.batch_norm(net)
+
+    net = lnn.layers.MaxPool2DLayer(net, pool_size=conv['pool_size'],
+                                    name='Pool_{}'.format(name))
+    net = lnn.layers.DropoutLayer(net, p=conv['dropout'])
+    return net
+
+
+def add_dense_out(net, dense, out_size):
+    for i in range(dense['num_layers']):
+        net = lnn.layers.DenseLayer(
+            net, num_units=dense['num_units'],
+            nonlinearity=lnn.nonlinearities.rectify,
+            name='Dense_{}'.format(i)
+        )
+        net = lnn.layers.DropoutLayer(net, p=dense['dropout'])
+
+    # output classification layer
+    net = lnn.layers.DenseLayer(net, name='output', num_units=out_size,
+                                nonlinearity=lnn.nonlinearities.softmax)
+
+    return net
+
+
+def add_gap_out(net, gap, batch_norm, out_size):
+    net = lnn.layers.Conv2DLayer(
+        net, num_filters=gap['num_filters'], filter_size=gap['filter_size'],
+        pad=0, nonlinearity=lnn.nonlinearities.rectify,
+        name='Gap_Filters')
+    if batch_norm:
+        net = lnn.layers.batch_norm(net)
+    net = lnn.layers.DropoutLayer(net, p=gap['dropout'])
+
+    net = lnn.layers.Conv2DLayer(
+        net, num_filters=gap['num_filters'], filter_size=1,
+        pad=0, nonlinearity=lnn.nonlinearities.rectify,
+        name='Gap_Filters_Single')
+    if batch_norm:
+        net = lnn.layers.batch_norm(net)
+    net = lnn.layers.DropoutLayer(net, p=gap['dropout'])
+
+    # output classification layer
+    net = lnn.layers.Conv2DLayer(
+        net, num_filters=out_size, filter_size=1,
+        nonlinearity=lnn.nonlinearities.rectify, name='Output_Conv')
+    if batch_norm:
+        net = lnn.layers.batch_norm(net)
+
+    net = lnn.layers.Pool2DLayer(
+        net, pool_size=net.output_shape[-2:], ignore_border=False,
+        mode='average_exc_pad', name='GlobalAveragePool')
+    net = lnn.layers.FlattenLayer(net, name='Flatten')
+    net = lnn.layers.NonlinearityLayer(
+        net, nonlinearity=lnn.nonlinearities.softmax, name='output')
+
+    return net
+
+
+def build_net(feature_shape, batch_size, net_params, optimiser, out_size):
+
+    # unpack net parameters to local variables
+    (batch_norm, conv1, conv2, conv3,
+     dense, global_avg_pool, l2_lambda) = itemgetter(
+        'batch_norm', 'conv1', 'conv2', 'conv3', 'dense',
+        'global_avg_pool', 'l2_lambda')(net_params)
 
     # input variables
     feature_var = tt.tensor3('feature_input', dtype='float32')
@@ -44,43 +116,20 @@ def build_net(feature_shape, batch_size, l2_lambda, conv1, pool1, conv2,
                                 shape=(batch_size,) + feature_shape,
                                 input_var=feature_var)
 
+    # reshape to 1 "color" channel
     net = lnn.layers.reshape(net, shape=(-1, 1) + feature_shape,
                              name='reshape')
 
-    for i in range(conv1['num_layers']):
-        net = lnn.layers.Conv2DLayer(
-            net, num_filters=conv1['num_filters'],
-            filter_size=conv1['filter_size'],  # pad='same', for 1st layer
-            nonlinearity=lnn.nonlinearities.rectify,
-            name='Conv_1_{}'.format(i))
+    for i, cp in enumerate([conv1, conv2, conv3]):
+        if cp:
+            net = add_conv_layers(net, cp, batch_norm, name=str(i + 1))
 
-    net = lnn.layers.MaxPool2DLayer(net, pool_size=pool1['size'],
-                                    name='Pool_1')
-    if pool1['dropout'] > 0.0:
-        net = lnn.layers.DropoutLayer(net, p=pool1['dropout'])
-
-    for i in range(conv2['num_layers']):
-        net = lnn.layers.Conv2DLayer(
-                net, num_filters=conv2['num_filters'],
-                filter_size=conv2['filter_size'],  # pad='same', for 1st layer
-                nonlinearity=lnn.nonlinearities.rectify,
-                name='Conv_2_{}'.format(i))
-
-    net = lnn.layers.MaxPool2DLayer(net, pool_size=pool2['size'],
-                                    name='Pool_2')
-    if pool2['dropout'] > 0.0:
-        net = lnn.layers.DropoutLayer(net, p=pool2['dropout'])
-
-    for i in range(dense['num_layers']):
-        net = lnn.layers.DenseLayer(net, num_units=dense['num_units'],
-                                    nonlinearity=lnn.nonlinearities.rectify,
-                                    name='Dense_{}'.format(i))
-        if dense['dropout'] > 0.0:
-            net = lnn.layers.DropoutLayer(net, p=dense['dropout'])
-
-    # output layer
-    net = lnn.layers.DenseLayer(net, name='output', num_units=out_size,
-                                nonlinearity=lnn.nonlinearities.softmax)
+    if dense:
+        net = add_dense_out(net, dense, out_size)
+    elif global_avg_pool:
+        net = add_gap_out(net, global_avg_pool, batch_norm, out_size)
+    else:
+        raise RuntimeError('Need to specify output architecture!')
 
     # create train function
     prediction = lnn.layers.get_output(net)
@@ -116,29 +165,29 @@ def config():
     target = None
 
     net = dict(
+        batch_norm=False,
         conv1=dict(
             num_layers=2,
             num_filters=32,
             filter_size=(3, 3),
-        ),
-        pool1=dict(
-            size=(1, 2),
-            dropout=0.25
+            pool_size=(1, 2),
+            dropout=0.25,
         ),
         conv2=dict(
             num_layers=1,
             num_filters=64,
-            filter_size=(3, 3)
+            filter_size=(3, 3),
+            pool_size=(1, 2),
+            dropout=0.25,
         ),
-        pool2=dict(
-            size=(1, 2),
-            dropout=0.25
-        ),
+        conv3={},
+        pool3={},
         dense=dict(
             num_layers=1,
             num_units=512,
             dropout=0.5
         ),
+        global_avg_pool=None,
         l2_lambda=1e-4
     )
 
@@ -154,6 +203,31 @@ def config():
         early_stop=20,
         early_stop_acc=True,
         batch_size=512,
+    )
+
+
+@ex.named_config
+def third_conv_layer():
+    net = dict(
+        conv3=dict(
+            num_layers=1,
+            num_filters=64,
+            filter_size=(3, 3),
+            pool_size=(1, 2),
+            dropout=0.25,
+        )
+    )
+
+
+@ex.named_config
+def gap_classifier():
+    net = dict(
+        dense=None,
+        global_avg_pool=dict(
+            num_filters=512,
+            filter_size=(3, 3),
+            dropout=0.5
+        )
     )
 
 
@@ -199,12 +273,7 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
     neural_net = build_net(
         feature_shape=train_set.feature_shape,
         batch_size=None,
-        l2_lambda=net['l2_lambda'],
-        conv1=net['conv1'],
-        conv2=net['conv2'],
-        pool1=net['pool1'],
-        pool2=net['pool2'],
-        dense=net['dense'],
+        net_params=net,
         optimiser=create_optimiser(optimiser),
         out_size=train_set.target_shape[0]
     )
@@ -214,6 +283,7 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
     print('')
 
     print(Colors.red('Starting training...\n'))
+
 
     best_params, train_losses, val_losses = nn.train(
         neural_net, train_set, n_epochs=training['num_epochs'],
