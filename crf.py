@@ -98,7 +98,7 @@ def add_recurrent_layers(net, mask_in, num_units, num_layers, grad_clip,
 
 def build_dense_ip(feature_shape, net, optimiser, out_size):
     ip_net = dnn.build_net(feature_shape, batch_size=None,
-                           l2_lambda=net['l2_lambda'],
+                           l2=net['l2_lambda'],
                            num_units=net['num_units'],
                            num_layers=net['num_layers'],
                            dropout=net['dropout'],
