@@ -103,9 +103,9 @@ def build_net(feature_shape, batch_size, net_params, optimiser, out_size):
 
     # unpack net parameters to local variables
     (batch_norm, conv1, conv2, conv3,
-     dense, global_avg_pool, l2_lambda) = itemgetter(
+     dense, global_avg_pool, l2, l1) = itemgetter(
         'batch_norm', 'conv1', 'conv2', 'conv3', 'dense',
-        'global_avg_pool', 'l2_lambda')(net_params)
+        'global_avg_pool', 'l2', 'l1')(net_params)
 
     # input variables
     feature_var = tt.tensor3('feature_input', dtype='float32')
@@ -134,8 +134,10 @@ def build_net(feature_shape, batch_size, net_params, optimiser, out_size):
     # create train function
     prediction = lnn.layers.get_output(net)
     l2_penalty = lnn.regularization.regularize_network_params(
-            net, lnn.regularization.l2) * l2_lambda
-    loss = compute_loss(prediction, target_var) + l2_penalty
+            net, lnn.regularization.l2) * l2
+    l1_penalty = lnn.regularization.regularize_network_params(
+        net, lnn.regularization.l1) * l1
+    loss = compute_loss(prediction, target_var) + l2_penalty + l1_penalty
     params = lnn.layers.get_all_params(net, trainable=True)
     updates = optimiser(loss, params)
     train = theano.function([feature_var, target_var], loss,
@@ -188,7 +190,8 @@ def config():
             dropout=0.5
         ),
         global_avg_pool=None,
-        l2_lambda=1e-4
+        l2=1e-4,
+        l1=0
     )
 
     optimiser = dict(
