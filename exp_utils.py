@@ -13,7 +13,6 @@ class TempDir:
     """
     Creates a temporary directory to save stuff to
     """
-
     def __enter__(self):
         self._tmp_dir_path = tempfile.mkdtemp()
         return self._tmp_dir_path

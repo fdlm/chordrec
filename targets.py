@@ -276,6 +276,9 @@ class ChromaTarget(IntervalAnnotationTarget):
         chromas = mir_eval.chord.rotate_bitmaps_to_roots(bitmaps, roots)
         return chromas
 
+    def _targets_to_annotations(self, targets):
+        raise RuntimeError('Does not work with this target.')
+
 
 def add_sacred_config(ex):
     ex.add_named_config(
