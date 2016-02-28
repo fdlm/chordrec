@@ -135,6 +135,10 @@ def config():
         early_stop_acc=True,
     )
 
+    testing = dict(
+        test_on_val=False
+    )
+
 
 @ex.named_config
 def no_context():
@@ -151,7 +155,7 @@ def no_context():
 
 @ex.automain
 def main(_config, _run, observations, datasource, net, feature_extractor,
-         target, optimiser, training):
+         target, optimiser, training, testing):
 
     if feature_extractor is None:
         print(Colors.red('ERROR: Specify a feature extractor!'))
@@ -169,11 +173,27 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
     if not isinstance(datasource['test_fold'], collections.Iterable):
         datasource['test_fold'] = [datasource['test_fold']]
 
+    if not isinstance(datasource['val_fold'], collections.Iterable):
+        datasource['val_fold'] = [datasource['val_fold']]
+
+        # if no validation folds are specified, always use the
+        # 'None' and determine validation fold automatically
+        if datasource['val_fold'][0] is None:
+            datasource['val_fold'] *= len(datasource['test_fold'])
+
+    if len(datasource['test_fold']) != len(datasource['val_fold']):
+        print(Colors.red('ERROR: Need same number of validation and '
+                         'test folds'))
+        return 1
+
     all_pred_files = []
     all_gt_files = []
 
+    print(Colors.magenta('\nStarting experiment ' + ex.observers[0].hash()))
+
     with TempDir() as exp_dir:
-        for test_fold in datasource['test_fold']:
+        for test_fold, val_fold in zip(datasource['test_fold'],
+                                       datasource['val_fold']):
             print('')
             print(Colors.yellow(
                 '=' * 20 + ' FOLD {} '.format(test_fold) + '=' * 20))
@@ -187,9 +207,12 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
                 compute_targets=target_computer,
                 context_size=datasource['context_size'],
                 test_fold=test_fold,
-                val_fold=datasource['val_fold'],
-                cached=datasource['cached']
+                val_fold=val_fold,
+                cached=datasource['cached'],
             )
+
+            if testing['test_on_val']:
+                test_set = val_set
 
             print(Colors.blue('Train Set:'))
             print('\t', train_set)
@@ -267,8 +290,9 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
             test.print_scores(scores)
             result_file = os.path.join(exp_dir, 'results.yaml')
             yaml.dump(dict(scores=scores), open(result_file, 'w'))
+            ex.add_artifact(result_file)
 
         for pf in all_pred_files:
             ex.add_artifact(pf)
 
-    print('')
+    print(Colors.magenta('Stopping experiment ' + ex.observers[0].hash()))

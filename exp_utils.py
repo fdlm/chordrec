@@ -63,6 +63,7 @@ class PickleAndSymlinkObserver(RunObserver):
     def __init__(self):
         self.config = None
         self.run = None
+        self._hash = None
 
     def started_event(self, ex_info, host_info, start_time, config, comment):
         self.config = config
@@ -79,12 +80,19 @@ class PickleAndSymlinkObserver(RunObserver):
             'comment': comment
         }
 
+    def hash(self):
+        if self._hash is None:
+            self._hash = rhash(self.config)
+
+        return self._hash
+
     def config_path(self):
         if self.config is None:
             raise RuntimeError('tried to get a path without a configuration!')
 
         config_save_path = os.path.join(self.config['observations'],
-                                        rhash(self.config))
+                                        self.hash())
+
         if not os.path.exists(config_save_path):
             os.mkdir(config_save_path)
             os.mkdir(os.path.join(config_save_path, 'resources'))
