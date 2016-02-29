@@ -125,7 +125,8 @@ def config():
         name='adam',
         params=dict(
             learning_rate=0.0001
-        )
+        ),
+        schedule=None
     )
 
     training = dict(
@@ -225,9 +226,11 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
             # build network
             print(Colors.red('Building network...\n'))
 
+            opt, learn_rate = create_optimiser(optimiser)
+
             neural_net = build_net(
                 feature_shape=train_set.feature_shape,
-                optimiser=create_optimiser(optimiser),
+                optimiser=opt,
                 out_size=train_set.target_shape[0],
                 **net
             )
@@ -238,12 +241,20 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
 
             print(Colors.red('Starting training...\n'))
 
+            updates = []
+            if optimiser['schedule'] is not None:
+                updates.append(
+                    nn.LearnRateSchedule(
+                        learn_rate=learn_rate, **optimiser['schedule'])
+                )
+
             best_params, train_losses, val_losses = nn.train(
                 neural_net, train_set, n_epochs=training['num_epochs'],
                 batch_size=training['batch_size'], validation_set=val_set,
                 early_stop=training['early_stop'],
                 early_stop_acc=training['early_stop_acc'],
                 threaded=10,
+                updates=updates
             )
 
             print(Colors.red('\nStarting testing...\n'))

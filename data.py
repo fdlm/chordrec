@@ -122,7 +122,9 @@ def add_sacred_config(ex):
             datasets=['beatles', 'queen', 'zweieck', 'robbie_williams', 'rwc'],
             context_size=0,
             preprocessors=[],
-            test_fold=0,
+            # fold 6 overestimates the score, but has highest correlation
+            # with the total score
+            test_fold=6,
             val_fold=None,
             cached=True
         )

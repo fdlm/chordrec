@@ -6,6 +6,7 @@ import shutil
 import hashlib
 import tempfile
 import lasagne as lnn
+import theano
 from functools import partial
 
 
@@ -22,9 +23,11 @@ class TempDir:
 
 
 def create_optimiser(optimiser):
+    lr = theano.shared(optimiser['params']['learning_rate'])
+    del optimiser['params']['learning_rate']
     return partial(
-        getattr(lnn.updates, optimiser['name']),
-        **optimiser['params'])
+        getattr(lnn.updates, optimiser['name']), learning_rate=lr,
+        **optimiser['params']), lr
 
 
 def rhash(d):

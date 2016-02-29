@@ -1,5 +1,6 @@
 from __future__ import print_function
 import os
+import collections
 import theano
 import theano.tensor as tt
 import lasagne as lnn
@@ -99,13 +100,8 @@ def add_gap_out(net, gap, batch_norm, out_size):
     return net
 
 
-def build_net(feature_shape, batch_size, net_params, optimiser, out_size):
-
-    # unpack net parameters to local variables
-    (batch_norm, conv1, conv2, conv3,
-     dense, global_avg_pool, l2, l1) = itemgetter(
-        'batch_norm', 'conv1', 'conv2', 'conv3', 'dense',
-        'global_avg_pool', 'l2', 'l1')(net_params)
+def build_net(feature_shape, batch_size, optimiser, out_size,
+              batch_norm, conv1, conv2, conv3, dense, global_avg_pool, l2, l1):
 
     # input variables
     feature_var = tt.tensor3('feature_input', dtype='float32')
@@ -249,86 +245,140 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
         feature_extractor['params']['fps'],
         target
     )
-    train_set, val_set, test_set, gt_files = data.create_datasources(
-        dataset_names=datasource['datasets'],
-        preprocessors=datasource['preprocessors'],
-        compute_features=features.create_extractor(feature_extractor),
-        compute_targets=target_computer,
-        context_size=datasource['context_size'],
-        test_fold=datasource['test_fold'],
-        val_fold=datasource['val_fold'],
-        cached=datasource['cached']
-    )
 
-    print(Colors.blue('Train Set:'))
-    print('\t', train_set)
+    if not isinstance(datasource['test_fold'], collections.Iterable):
+        datasource['test_fold'] = [datasource['test_fold']]
 
-    print(Colors.blue('Validation Set:'))
-    print('\t', val_set)
+    if not isinstance(datasource['val_fold'], collections.Iterable):
+        datasource['val_fold'] = [datasource['val_fold']]
 
-    print(Colors.blue('Test Set:'))
-    print('\t', test_set)
-    print('')
+        # if no validation folds are specified, always use the
+        # 'None' and determine validation fold automatically
+        if datasource['val_fold'][0] is None:
+            datasource['val_fold'] *= len(datasource['test_fold'])
 
-    # build network
-    print(Colors.red('Building network...\n'))
+    if len(datasource['test_fold']) != len(datasource['val_fold']):
+        print(Colors.red('ERROR: Need same number of validation and '
+                         'test folds'))
+        return 1
 
-    neural_net = build_net(
-        feature_shape=train_set.feature_shape,
-        batch_size=None,
-        net_params=net,
-        optimiser=create_optimiser(optimiser),
-        out_size=train_set.target_shape[0]
-    )
+    all_pred_files = []
+    all_gt_files = []
 
-    print(Colors.blue('Neural Network:'))
-    print(neural_net)
-    print('')
+    print(Colors.magenta('\nStarting experiment ' + ex.observers[0].hash()))
 
-    print(Colors.red('Starting training...\n'))
+    with TempDir() as exp_dir:
+        for test_fold, val_fold in zip(datasource['test_fold'],
+                                       datasource['val_fold']):
+            print('')
+            print(Colors.yellow(
+                '=' * 20 + ' FOLD {} '.format(test_fold) + '=' * 20))
+            # Load data sets
+            print(Colors.red('\nLoading data...\n'))
 
+            train_set, val_set, test_set, gt_files = data.create_datasources(
+                dataset_names=datasource['datasets'],
+                preprocessors=datasource['preprocessors'],
+                compute_features=features.create_extractor(feature_extractor),
+                compute_targets=target_computer,
+                context_size=datasource['context_size'],
+                test_fold=datasource['test_fold'],
+                val_fold=datasource['val_fold'],
+                cached=datasource['cached']
+            )
 
-    best_params, train_losses, val_losses = nn.train(
-        neural_net, train_set, n_epochs=training['num_epochs'],
-        batch_size=training['batch_size'], validation_set=val_set,
-        early_stop=training['early_stop'],
-        threaded=10,
-        early_stop_acc=training['early_stop_acc']
-    )
+            print(Colors.blue('Train Set:'))
+            print('\t', train_set)
 
-    print(Colors.red('\nStarting testing...\n'))
+            print(Colors.blue('Validation Set:'))
+            print('\t', val_set)
 
-    neural_net.set_parameters(best_params)
+            print(Colors.blue('Test Set:'))
+            print('\t', test_set)
+            print('')
 
-    with TempDir() as dest_dir:
-        param_file = os.path.join(dest_dir, 'params.pkl')
-        neural_net.save_parameters(param_file)
-        ex.add_artifact(param_file)
+            # build network
+            print(Colors.red('Building network...\n'))
 
-        pred_files = test.compute_labeling(
-            neural_net, target_computer, test_set, dest_dir=dest_dir,
-            rnn=False
-        )
+            opt, learn_rate = create_optimiser(optimiser)
 
-        test_gt_files = dmgr.files.match_files(
-            pred_files, gt_files, test.PREDICTION_EXT, data.GT_EXT
-        )
+            neural_net = build_net(
+                feature_shape=train_set.feature_shape,
+                batch_size=None,
+                optimiser=opt,
+                out_size=train_set.target_shape[0],
+                **net
+            )
 
-        print(Colors.red('\nResults:\n'))
-        scores = test.compute_average_scores(test_gt_files, pred_files)
-        # convert to float so yaml output looks nice
-        for k in scores:
-            scores[k] = float(scores[k])
-        test.print_scores(scores)
+            print(Colors.blue('Neural Network:'))
+            print(neural_net)
+            print('')
 
-        result_file = os.path.join(dest_dir, 'results.yaml')
-        yaml.dump(dict(scores=scores,
-                       train_losses=map(float, train_losses),
-                       val_losses=map(float, val_losses)),
-                  open(result_file, 'w'))
-        ex.add_artifact(result_file)
+            print(Colors.red('Starting training...\n'))
 
-        for pf in pred_files:
+            updates = []
+            if optimiser['schedule'] is not None:
+                updates.append(
+                    nn.LearnRateSchedule(
+                        learn_rate=learn_rate, **optimiser['schedule'])
+                )
+
+            best_params, train_losses, val_losses = nn.train(
+                neural_net, train_set, n_epochs=training['num_epochs'],
+                batch_size=training['batch_size'], validation_set=val_set,
+                early_stop=training['early_stop'],
+                threaded=10,
+                early_stop_acc=training['early_stop_acc'],
+                updates=updates
+            )
+
+            print(Colors.red('\nStarting testing...\n'))
+
+            param_file = os.path.join(
+                exp_dir, 'params_fold_{}.pkl'.format(test_fold))
+            neural_net.save_parameters(param_file)
+            ex.add_artifact(param_file)
+
+            pred_files = test.compute_labeling(
+                neural_net, target_computer, test_set, dest_dir=exp_dir,
+                rnn=False
+            )
+
+            test_gt_files = dmgr.files.match_files(
+                pred_files, gt_files, test.PREDICTION_EXT, data.GT_EXT
+            )
+
+            all_pred_files += pred_files
+            all_gt_files += test_gt_files
+
+            print(Colors.blue('Results:'))
+            scores = test.compute_average_scores(test_gt_files, pred_files)
+            # convert to float so yaml output looks nice
+            for k in scores:
+                scores[k] = float(scores[k])
+            test.print_scores(scores)
+
+            result_file = os.path.join(
+                exp_dir, 'results_fold_{}.yaml'.format(test_fold))
+            yaml.dump(dict(scores=scores,
+                           train_losses=map(float, train_losses),
+                           val_losses=map(float, val_losses)),
+                      open(result_file, 'w'))
+            ex.add_artifact(result_file)
+
+        # if there is something to aggregate
+        if len(datasource['test_fold']) > 1:
+            print(Colors.yellow('\nAggregated Results:\n'))
+            scores = test.compute_average_scores(all_gt_files, all_pred_files)
+            # convert to float so yaml output looks nice
+            for k in scores:
+                scores[k] = float(scores[k])
+            test.print_scores(scores)
+            result_file = os.path.join(exp_dir, 'results.yaml')
+            yaml.dump(dict(scores=scores), open(result_file, 'w'))
+            ex.add_artifact(result_file)
+
+        for pf in all_pred_files:
             ex.add_artifact(pf)
 
-    print('')
+    print(Colors.magenta('Stopping experiment ' + ex.observers[0].hash()))
