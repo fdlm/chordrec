@@ -34,27 +34,20 @@ def compute_loss(prediction, target):
     return lnn.objectives.categorical_crossentropy(pred_clip, target).mean()
 
 
-def stack_layers(inp, nonlinearity, num_layers, num_units, dropout,
-                 batch_norm):
+def stack_layers(inp, batch_norm, nonlinearity, num_layers, num_units,
+                 dropout):
 
     nl = getattr(lnn.nonlinearities, nonlinearity)
     net = inp
 
     for i in range(num_layers):
+        net = lnn.layers.DenseLayer(
+            net, num_units=num_units, nonlinearity=nl,
+            name='fc-{}'.format(i)
+        )
         if batch_norm:
-            net = lnn.layers.batch_norm(
-                lnn.layers.DenseLayer(
-                    net, num_units=num_units, nonlinearity=nl,
-                    name='fc-{}'.format(i)
-                )
-            )
-        else:
-            net = lnn.layers.DenseLayer(
-                net, num_units=num_units, nonlinearity=nl,
-                name='fc-{}'.format(i)
-            )
-        if dropout > 0.0:
-            net = lnn.layers.DropoutLayer(net, p=dropout)
+            net = lnn.layers.batch_norm(net)
+        net = lnn.layers.DropoutLayer(net, p=dropout)
 
     return net
 
@@ -72,8 +65,8 @@ def build_net(feature_shape, optimiser, out_size, l2, num_units, num_layers,
                                 shape=(None,) + feature_shape,
                                 input_var=feature_var)
 
-    net = stack_layers(net, nonlinearity, num_layers, num_units, dropout,
-                       batch_norm)
+    net = stack_layers(net, batch_norm, nonlinearity, num_layers, num_units,
+                       dropout)
 
     # output layer
     net = lnn.layers.DenseLayer(net, name='output', num_units=out_size,
@@ -142,6 +135,16 @@ def config():
 
 
 @ex.named_config
+def learn_rate_schedule():
+    optimiser = dict(
+        schedule=dict(
+            interval=10,
+            factor=0.5
+        )
+    )
+
+
+@ex.named_config
 def no_context():
     datasource = dict(
         context_size=0
@@ -150,7 +153,7 @@ def no_context():
     net = dict(
         num_units=100,
         dropout=0.3,
-        l2_lambda=0.
+        l2=0.
     )
 
 

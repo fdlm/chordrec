@@ -17,6 +17,7 @@ import test
 import data
 import targets
 import features
+import dnn
 from exp_utils import PickleAndSymlinkObserver, TempDir, create_optimiser
 
 # Initialise Sacred experiment
@@ -34,34 +35,23 @@ def compute_loss(prediction, target):
     return lnn.objectives.categorical_crossentropy(pred_clip, target).mean()
 
 
-def add_conv_layers(net, conv, batch_norm, name):
-    for i in range(conv['num_layers']):
-        net = lnn.layers.Conv2DLayer(
-            net, num_filters=conv['num_filters'],
-            filter_size=conv['filter_size'],
-            nonlinearity=lnn.nonlinearities.rectify,
-            name='Conv_{}_{}'.format(name, i))
-        if batch_norm:
-            net = lnn.layers.batch_norm(net)
+def stack_layers(net, batch_norm, convs):
 
-    net = lnn.layers.MaxPool2DLayer(net, pool_size=conv['pool_size'],
-                                    name='Pool_{}'.format(name))
-    net = lnn.layers.DropoutLayer(net, p=conv['dropout'])
-    return net
+    for i, conv in enumerate(convs):
+        if not conv:
+            continue
+        for k in range(conv['num_layers']):
+            net = lnn.layers.Conv2DLayer(
+                net, num_filters=conv['num_filters'],
+                filter_size=conv['filter_size'],
+                nonlinearity=lnn.nonlinearities.rectify,
+                name='Conv_{}_{}'.format(i, k))
+            if batch_norm:
+                net = lnn.layers.batch_norm(net)
 
-
-def add_dense_out(net, dense, out_size):
-    for i in range(dense['num_layers']):
-        net = lnn.layers.DenseLayer(
-            net, num_units=dense['num_units'],
-            nonlinearity=lnn.nonlinearities.rectify,
-            name='Dense_{}'.format(i)
-        )
-        net = lnn.layers.DropoutLayer(net, p=dense['dropout'])
-
-    # output classification layer
-    net = lnn.layers.DenseLayer(net, name='output', num_units=out_size,
-                                nonlinearity=lnn.nonlinearities.softmax)
+        net = lnn.layers.MaxPool2DLayer(net, pool_size=conv['pool_size'],
+                                        name='Pool_{}'.format(i))
+        net = lnn.layers.DropoutLayer(net, p=conv['dropout'])
 
     return net
 
@@ -116,12 +106,13 @@ def build_net(feature_shape, batch_size, optimiser, out_size,
     net = lnn.layers.reshape(net, shape=(-1, 1) + feature_shape,
                              name='reshape')
 
-    for i, cp in enumerate([conv1, conv2, conv3]):
-        if cp:
-            net = add_conv_layers(net, cp, batch_norm, name=str(i + 1))
+    net = stack_layers(net, batch_norm, [conv1, conv2, conv3])
 
     if dense:
-        net = add_dense_out(net, dense, out_size)
+        net = dnn.stack_layers(net, **dense)
+        # output classification layer
+        net = lnn.layers.DenseLayer(net, name='output', num_units=out_size,
+                                    nonlinearity=lnn.nonlinearities.softmax)
     elif global_avg_pool:
         net = add_gap_out(net, global_avg_pool, batch_norm, out_size)
     else:
@@ -169,21 +160,22 @@ def config():
             num_filters=32,
             filter_size=(3, 3),
             pool_size=(1, 2),
-            dropout=0.25,
+            dropout=0.5,
         ),
         conv2=dict(
             num_layers=1,
             num_filters=64,
             filter_size=(3, 3),
             pool_size=(1, 2),
-            dropout=0.25,
+            dropout=0.5,
         ),
         conv3={},
-        pool3={},
         dense=dict(
             num_layers=1,
             num_units=512,
-            dropout=0.5
+            dropout=0.5,
+            nonlinearity='rectify',
+            batch_norm=False
         ),
         global_avg_pool=None,
         l2=1e-4,
@@ -194,7 +186,8 @@ def config():
         name='adam',
         params=dict(
                 learning_rate=0.001
-        )
+        ),
+        schedule=None
     )
 
     training = dict(
@@ -202,6 +195,10 @@ def config():
         early_stop=20,
         early_stop_acc=True,
         batch_size=512,
+    )
+
+    testing = dict(
+        test_on_val=False
     )
 
 
@@ -213,7 +210,7 @@ def third_conv_layer():
             num_filters=64,
             filter_size=(3, 3),
             pool_size=(1, 2),
-            dropout=0.25,
+            dropout=0.5,
         )
     )
 
@@ -230,9 +227,19 @@ def gap_classifier():
     )
 
 
+@ex.named_config
+def learn_rate_schedule():
+    optimiser = dict(
+        schedule=dict(
+            interval=10,
+            factor=0.5
+        )
+    )
+
+
 @ex.automain
 def main(_config, _run, observations, datasource, net, feature_extractor,
-         target, optimiser, training):
+         target, optimiser, training, testing):
 
     if feature_extractor is None:
         print(Colors.red('ERROR: Specify a feature extractor!'))
@@ -282,10 +289,13 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
                 compute_features=features.create_extractor(feature_extractor),
                 compute_targets=target_computer,
                 context_size=datasource['context_size'],
-                test_fold=datasource['test_fold'],
-                val_fold=datasource['val_fold'],
+                test_fold=test_fold,
+                val_fold=val_fold,
                 cached=datasource['cached']
             )
+
+            if testing['test_on_val']:
+                test_set = val_set
 
             print(Colors.blue('Train Set:'))
             print('\t', train_set)
