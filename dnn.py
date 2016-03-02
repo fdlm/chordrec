@@ -281,10 +281,6 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
 
             print(Colors.blue('Results:'))
             scores = test.compute_average_scores(test_gt_files, pred_files)
-            # convert to float so yaml output looks nice
-            for k in scores:
-                scores[k] = float(scores[k])
-            test.print_scores(scores)
 
             result_file = os.path.join(
                 exp_dir, 'results_fold_{}.yaml'.format(test_fold))
@@ -298,9 +294,6 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
         if len(datasource['test_fold']) > 1:
             print(Colors.yellow('\nAggregated Results:\n'))
             scores = test.compute_average_scores(all_gt_files, all_pred_files)
-            # convert to float so yaml output looks nice
-            for k in scores:
-                scores[k] = float(scores[k])
             test.print_scores(scores)
             result_file = os.path.join(exp_dir, 'results.yaml')
             yaml.dump(dict(scores=scores), open(result_file, 'w'))

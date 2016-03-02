@@ -1,5 +1,6 @@
 from __future__ import print_function
 import os
+import collections
 import numpy as np
 import theano
 import theano.tensor as tt
@@ -33,19 +34,16 @@ def compute_loss(prediction, target, mask):
     return lnn.objectives.aggregate(loss, mask, mode='normalized_sum')
 
 
-def build_net(feature_shape, batch_size, l2_lambda, num_rec_units,
-              num_layers, dropout, grad_clip, nonlinearity, bidirectional,
-              optimiser, max_seq_len, out_size):
-
+def build_net(feature_shape, out_size, optimiser, l2, num_rec_units,
+              num_layers, dropout, grad_clip, nonlinearity, bidirectional):
     # input variables
     feature_var = tt.tensor3('feature_input', dtype='float32')
     target_var = tt.tensor3('target_output', dtype='float32')
     mask_var = tt.matrix('mask_input', dtype='float32')
 
     # stack more layers
-    # We do not know the length of the sequence...
     net = lnn.layers.InputLayer(
-            name='input', shape=(batch_size, max_seq_len) + feature_shape,
+            name='input', shape=(None, None) + feature_shape,
             input_var=feature_var
     )
 
@@ -53,7 +51,7 @@ def build_net(feature_shape, batch_size, l2_lambda, num_rec_units,
 
     mask_in = lnn.layers.InputLayer(name='mask',
                                     input_var=mask_var,
-                                    shape=(batch_size, max_seq_len))
+                                    shape=(None, None))
 
     if nonlinearity != 'LSTM':
         nl = getattr(lnn.nonlinearities, nonlinearity)
@@ -110,7 +108,7 @@ def build_net(feature_shape, batch_size, l2_lambda, num_rec_units,
     # create train function
     prediction = lnn.layers.get_output(net)
     l2_penalty = lnn.regularization.regularize_network_params(
-        net, lnn.regularization.l2) * l2_lambda
+        net, lnn.regularization.l2) * l2
     loss = compute_loss(prediction, target_var, mask_var) + l2_penalty
     params = lnn.layers.get_all_params(net, trainable=True)
     updates = optimiser(loss, params)
@@ -138,7 +136,7 @@ def config():
     target = None
 
     net = dict(
-        l2_lambda=1e-4,
+        l2=1e-4,
         num_rec_units=128,
         num_layers=3,
         dropout=0.3,
@@ -151,7 +149,8 @@ def config():
         name='adam',
         params=dict(
             learning_rate=0.001
-        )
+        ),
+        schedule=None
     )
 
     training = dict(
@@ -160,6 +159,10 @@ def config():
         early_stop_acc=True,
         batch_size=64,
         max_seq_len=1024
+    )
+
+    testing = dict(
+        test_on_val=False
     )
 
 
@@ -173,7 +176,7 @@ def lstm():
 
 @ex.automain
 def main(_config, _run, observations, datasource, net, feature_extractor,
-         target, optimiser, training):
+         target, optimiser, training, testing):
 
     if feature_extractor is None:
         print(Colors.red('ERROR: Specify a feature extractor!'))
@@ -183,118 +186,139 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
         print(Colors.red('ERROR: Specify a target!'))
         return 1
 
-    # Load data sets
-    print(Colors.red('Loading data...\n'))
-
     target_computer = targets.create_target(
         feature_extractor['params']['fps'],
         target
     )
-    train_set, val_set, test_set, gt_files = data.create_datasources(
-        dataset_names=datasource['datasets'],
-        preprocessors=datasource['preprocessors'],
-        compute_features=features.create_extractor(feature_extractor),
-        context_size=datasource['context_size'],
-        compute_targets=target_computer,
-        test_fold=datasource['test_fold'],
-        val_fold=datasource['val_fold']
-    )
 
-    print(Colors.blue('Train Set:'))
-    print('\t', train_set)
+    if not isinstance(datasource['test_fold'], collections.Iterable):
+        datasource['test_fold'] = [datasource['test_fold']]
 
-    print(Colors.blue('Validation Set:'))
-    print('\t', val_set)
+    if not isinstance(datasource['val_fold'], collections.Iterable):
+        datasource['val_fold'] = [datasource['val_fold']]
 
-    print(Colors.blue('Test Set:'))
-    print('\t', test_set)
-    print('')
+        # if no validation folds are specified, always use the
+        # 'None' and determine validation fold automatically
+        if datasource['val_fold'][0] is None:
+            datasource['val_fold'] *= len(datasource['test_fold'])
 
-    # build network
-    print(Colors.red('Building network...\n'))
+    if len(datasource['test_fold']) != len(datasource['val_fold']):
+        print(Colors.red('ERROR: Need same number of validation and '
+                         'test folds'))
+        return 1
 
-    train_neural_net = build_net(
-        feature_shape=train_set.feature_shape,
-        batch_size=training['batch_size'],
-        max_seq_len=training['max_seq_len'],
-        l2_lambda=net['l2_lambda'],
-        num_rec_units=net['num_rec_units'],
-        num_layers=net['num_layers'],
-        dropout=net['dropout'],
-        bidirectional=net['bidirectional'],
-        grad_clip=net['grad_clip'],
-        nonlinearity=net['nonlinearity'],
-        optimiser=create_optimiser(optimiser),
-        out_size=train_set.target_shape[0]
-    )
+    all_pred_files = []
+    all_gt_files = []
 
-    print(Colors.blue('Neural Network:'))
-    print(train_neural_net)
-    print('')
+    print(Colors.magenta('\nStarting experiment ' + ex.observers[0].hash()))
 
-    print(Colors.red('Starting training...\n'))
+    with TempDir() as exp_dir:
+        for test_fold, val_fold in zip(datasource['test_fold'],
+                                       datasource['val_fold']):
+            print('')
+            print(Colors.yellow(
+                '=' * 20 + ' FOLD {} '.format(test_fold) + '=' * 20))
+            # Load data sets
+            print(Colors.red('\nLoading data...\n'))
 
-    best_params, train_losses, val_losses = nn.train(
-        train_neural_net, train_set, n_epochs=training['num_epochs'],
-        batch_size=training['batch_size'], validation_set=val_set,
-        early_stop=training['early_stop'],
-        batch_iterator=dmgr.iterators.iterate_datasources,
-        sequence_length=training['max_seq_len'],
-        threaded=10
-    )
+            train_set, val_set, test_set, gt_files = data.create_datasources(
+                dataset_names=datasource['datasets'],
+                preprocessors=datasource['preprocessors'],
+                compute_features=features.create_extractor(feature_extractor),
+                context_size=datasource['context_size'],
+                compute_targets=target_computer,
+                test_fold=test_fold,
+                val_fold=val_fold,
+                cached=datasource['cached'],
+            )
 
-    print(Colors.red('\nStarting testing...\n'))
+            if testing['test_on_val']:
+                test_set = val_set
 
-    del train_neural_net
+            print(Colors.blue('Train Set:'))
+            print('\t', train_set)
+            print(Colors.blue('Validation Set:'))
+            print('\t', val_set)
+            print(Colors.blue('Test Set:'))
+            print('\t', test_set)
+            print('')
 
-    # build test rnn with batch size 1 and no max sequence length
-    test_neural_net = build_net(
-        feature_shape=test_set.feature_shape,
-        batch_size=1,
-        max_seq_len=None,
-        l2_lambda=net['l2_lambda'],
-        num_rec_units=net['num_rec_units'],
-        num_layers=net['num_layers'],
-        dropout=net['dropout'],
-        bidirectional=net['bidirectional'],
-        grad_clip=net['grad_clip'],
-        nonlinearity=net['nonlinearity'],
-        optimiser=create_optimiser(optimiser),
-        out_size=test_set.target_shape[0]
-    )
+            # build network
+            print(Colors.red('Building network...\n'))
 
-    # load previously learnt parameters
-    test_neural_net.set_parameters(best_params)
+            opt, learn_rate = create_optimiser(optimiser)
 
-    with TempDir() as dest_dir:
-        param_file = os.path.join(dest_dir, 'params.pkl')
-        test_neural_net.save_parameters(param_file)
-        ex.add_artifact(param_file)
+            neural_net = build_net(
+                feature_shape=train_set.feature_shape,
+                out_size=train_set.target_shape[0],
+                optimiser=opt,
+                **net
+            )
 
-        pred_files = test.compute_labeling(
-            test_neural_net, target_computer, test_set, dest_dir=dest_dir,
-            rnn=True
-        )
+            print(Colors.blue('Neural Network:'))
+            print(neural_net)
+            print('')
 
-        test_gt_files = dmgr.files.match_files(
-            pred_files, gt_files, test.PREDICTION_EXT, data.GT_EXT
-        )
+            print(Colors.red('Starting training...\n'))
 
-        print(Colors.red('\nResults:\n'))
-        scores = test.compute_average_scores(test_gt_files, pred_files)
-        # convert to float so yaml output looks nice
-        for k in scores:
-            scores[k] = float(scores[k])
-        test.print_scores(scores)
+            updates = []
+            if optimiser['schedule'] is not None:
+                updates.append(
+                    nn.LearnRateSchedule(
+                        learn_rate=learn_rate, **optimiser['schedule'])
+                )
 
-        result_file = os.path.join(dest_dir, 'results.yaml')
-        yaml.dump(dict(scores=scores,
-                       train_losses=map(float, train_losses),
-                       val_losses=map(float, val_losses)),
-                  open(result_file, 'w'))
-        ex.add_artifact(result_file)
+            best_params, train_losses, val_losses = nn.train(
+                neural_net, train_set, n_epochs=training['num_epochs'],
+                batch_size=training['batch_size'], validation_set=val_set,
+                early_stop=training['early_stop'],
+                batch_iterator=dmgr.iterators.iterate_datasources,
+                sequence_length=training['max_seq_len'],
+                threaded=10,
+                updates=updates
+            )
 
-        for pf in pred_files:
+            print(Colors.red('\nStarting testing...\n'))
+
+            param_file = os.path.join(
+                exp_dir, 'params_fold_{}.pkl'.format(test_fold))
+            neural_net.save_parameters(param_file)
+            ex.add_artifact(param_file)
+
+            pred_files = test.compute_labeling(
+                neural_net, target_computer, test_set, dest_dir=exp_dir,
+                rnn=True
+            )
+
+            test_gt_files = dmgr.files.match_files(
+                pred_files, gt_files, test.PREDICTION_EXT, data.GT_EXT
+            )
+
+            all_pred_files += pred_files
+            all_gt_files += test_gt_files
+
+            print(Colors.red('\nResults:\n'))
+            scores = test.compute_average_scores(test_gt_files, pred_files)
+            test.print_scores(scores)
+
+            result_file = os.path.join(
+                exp_dir, 'results_fold_{}.yaml'.format(test_fold))
+            yaml.dump(dict(scores=scores,
+                           train_losses=map(float, train_losses),
+                           val_losses=map(float, val_losses)),
+                      open(result_file, 'w'))
+            ex.add_artifact(result_file)
+
+        # if there is something to aggregate
+        if len(datasource['test_fold']) > 1:
+            print(Colors.yellow('\nAggregated Results:\n'))
+            scores = test.compute_average_scores(all_gt_files, all_pred_files)
+            test.print_scores(scores)
+            result_file = os.path.join(exp_dir, 'results.yaml')
+            yaml.dump(dict(scores=scores), open(result_file, 'w'))
+            ex.add_artifact(result_file)
+
+        for pf in all_pred_files:
             ex.add_artifact(pf)
 
-    print('')
+    print(Colors.magenta('Stopping experiment ' + ex.observers[0].hash()))

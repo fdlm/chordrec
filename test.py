@@ -82,7 +82,7 @@ def compute_average_scores(annotation_files, prediction_files):
     for length, score in scores:
         weight = length / total_length
         for metric in score:
-            avg_score[metric] += weight * score[metric]
+            avg_score[metric] += float(weight * score[metric])
 
     return avg_score
 
