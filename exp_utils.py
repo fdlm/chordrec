@@ -26,10 +26,10 @@ class TempDir:
 def create_optimiser(optimiser):
     lr = theano.shared(np.float32(
         optimiser['params']['learning_rate']))
-    del optimiser['params']['learning_rate']
+    op = {k: v for k, v in optimiser['params'].iteritems()
+          if k != 'learning_rate'}
     return partial(
-        getattr(lnn.updates, optimiser['name']), learning_rate=lr,
-        **optimiser['params']), lr
+        getattr(lnn.updates, optimiser['name']), learning_rate=lr, **op), lr
 
 
 def rhash(d):

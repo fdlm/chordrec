@@ -9,7 +9,7 @@ PREDICTION_EXT = '.chords.txt'
 
 
 def compute_labeling(network, target, agg_dataset, dest_dir, rnn,
-                     extension='.chords.txt'):
+                     add_time_dim=False, extension='.chords.txt'):
     """
     Computes and saves the labels for each datasource in an aggragated
     datasource
@@ -36,6 +36,9 @@ def compute_labeling(network, target, agg_dataset, dest_dir, rnn,
 
         # skip targets
         data, _ = ds[:]
+
+        if add_time_dim:
+            data = data[:, np.newaxis, ...]
 
         if rnn:
             data = data[np.newaxis, :]
