@@ -4,7 +4,7 @@ import test
 import os
 import shutil
 import scipy.stats
-from targets import ChordsMajMin, one_hot
+from targets import ChordsMajMin
 from docopt import docopt
 from exp_utils import TempDir
 from itertools import tee, izip
