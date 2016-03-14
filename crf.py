@@ -4,7 +4,6 @@ import collections
 import theano
 import theano.tensor as tt
 import lasagne as lnn
-import numpy as np
 import spaghetti as spg
 import yaml
 from sacred import Experiment
@@ -18,6 +17,7 @@ import data
 import features
 import targets
 import dnn
+import convnet
 from exp_utils import (PickleAndSymlinkObserver, TempDir, create_optimiser,
                        ParamSaver)
 
@@ -59,26 +59,43 @@ def build_net(feature_shape, out_size, input_processor, crf, fine_tuning,
     true_batch_size, true_seq_len = feature_var.shape[:2]
 
     net_has_ip = False
-    if input_processor and input_processor['type'] == 'dense':
+    if input_processor and input_processor['type'] in ['dense', 'conv']:
         net_has_ip = True
         ip_net_cfg = input_processor['net']
 
-        net = lnn.layers.ReshapeLayer(net, (-1,) + feature_shape,
-                                      name='reshape to single')
-        net = dnn.stack_layers(
-            inp=net,
-            batch_norm=ip_net_cfg['batch_norm'],
-            nonlinearity=ip_net_cfg['nonlinearity'],
-            num_layers=ip_net_cfg['num_layers'],
-            num_units=ip_net_cfg['num_units'],
-            dropout=ip_net_cfg['dropout']
-        )
-
-        net = lnn.layers.ReshapeLayer(
-            net,
-            (true_batch_size, true_seq_len, ip_net_cfg['num_units']),
-            name='reshape back'
-        )
+        if input_processor['type'] == 'dense':
+            net = lnn.layers.ReshapeLayer(net, (-1,) + feature_shape,
+                                          name='reshape to single')
+            net = dnn.stack_layers(
+                inp=net,
+                batch_norm=ip_net_cfg['batch_norm'],
+                nonlinearity=ip_net_cfg['nonlinearity'],
+                num_layers=ip_net_cfg['num_layers'],
+                num_units=ip_net_cfg['num_units'],
+                dropout=ip_net_cfg['dropout']
+            )
+            net = lnn.layers.ReshapeLayer(
+                net,
+                (true_batch_size, true_seq_len, ip_net_cfg['num_units']),
+                name='reshape back'
+            )
+        else:  # conv
+            net = lnn.layers.ReshapeLayer(net, (-1, 1) + feature_shape,
+                                          name='reshape to single')
+            # first, stack convolutive layers
+            net = convnet.stack_layers(
+                net=net,
+                batch_norm=ip_net_cfg['batch_norm'],
+                convs=[ip_net_cfg[c] for c in ['conv1', 'conv2', 'conv3']]
+            )
+            # then, add dense layers
+            net = dnn.stack_layers(net, **ip_net_cfg['dense'])
+            net = lnn.layers.ReshapeLayer(
+                net,
+                (true_batch_size, true_seq_len,
+                 ip_net_cfg['dense']['num_units']),
+                name='reshape back'
+            )
 
         # tag layers as input_processor
         for l in lnn.layers.get_all_layers(net):
@@ -281,6 +298,59 @@ def dense_ip():
         )
     )
 
+
+@ex.named_config
+def conv_ip():
+    datasource = dict(
+        context_size=7
+    )
+    input_processor = dict(
+        type='conv',
+        pre_train=True,
+        net=dict(
+            batch_norm=True,
+            conv1=dict(
+                num_layers=2,
+                num_filters=8,
+                filter_size=(3, 3),
+                pool_size=(1, 2),
+                dropout=0.5,
+            ),
+            conv2=dict(
+                num_layers=1,
+                num_filters=16,
+                filter_size=(3, 3),
+                pool_size=(1, 2),
+                dropout=0.5,
+            ),
+            conv3={},
+            dense=dict(
+                num_layers=1,
+                num_units=256,
+                dropout=0.5,
+                nonlinearity='rectify',
+                batch_norm=False
+            ),
+            global_avg_pool=None,
+            l2=1e-4,
+            l1=0
+        ),
+
+        optimiser=dict(
+            name='adam',
+            params=dict(
+                learning_rate=0.001
+            ),
+            schedule=None
+        ),
+
+        training=dict(
+            num_epochs=500,
+            early_stop=20,
+            early_stop_acc=True,
+            batch_size=2048,
+        )
+    )
 
 # @ex.named_config
 # def recurrent_ip():
