@@ -107,7 +107,7 @@ def config():
 
     net = dict(
         num_layers=3,
-        num_units=256,
+        num_units=512,
         dropout=0.5,
         nonlinearity='rectify',
         batch_norm=False,
@@ -281,7 +281,7 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
 
             print(Colors.blue('Results:'))
             scores = test.compute_average_scores(test_gt_files, pred_files)
-
+            test.print_scores(scores)
             result_file = os.path.join(
                 exp_dir, 'results_fold_{}.yaml'.format(test_fold))
             yaml.dump(dict(scores=scores,

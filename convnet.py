@@ -128,7 +128,7 @@ def build_net(feature_shape, batch_size, optimiser, out_size,
     params = lnn.layers.get_all_params(net, trainable=True)
     updates = optimiser(loss, params)
     train = theano.function([feature_var, target_var], loss,
-                            updates=updates)
+                           updates=updates)
 
     # create test and process function. process just computes the prediction
     # without computing the loss, and thus does not need target labels
