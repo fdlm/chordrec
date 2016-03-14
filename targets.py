@@ -41,12 +41,13 @@ class IntervalAnnotationTarget(object):
     def _dummy_target(self):
         raise NotImplementedError('Implement this.')
 
-    def __call__(self, target_file, num_frames):
+    def __call__(self, target_file, num_frames=None):
         """
         Creates one-hot encodings from an annotation file.
 
         :param target_file: file containing time annotations
-        :param num_frames:  number of frames in the audio file
+        :param num_frames:  number of frames in the audio file. if None,
+                            estimate from the end of last annotation
         :return:            one-hot ground truth per frame
         """
         ann = np.loadtxt(target_file,
@@ -56,6 +57,9 @@ class IntervalAnnotationTarget(object):
                                 # assumes chord descriptions are
                                 # shorter than 50 characters
                                 ('label', 'S50')])
+
+        if num_frames is None:
+            num_frames = np.ceil(ann['end'][-1] * self.fps)
 
         # we will add a dummy class at the end and at the beginning,
         # because some annotations miss it, are not exactly aligned at the end
