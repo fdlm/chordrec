@@ -37,8 +37,8 @@ def compute_chroma_loss(prediction, target):
     return lnn.objectives.binary_crossentropy(pred_clip, target).mean()
 
 
-def build_net(feature_shape, optimiser, out_size_chroma, out_size_chords,
-              batch_norm, conv, dense, l2):
+def build_net(feature_shape, out_size_chroma, out_size_chords,
+              chroma_extractor, chroma_optimiser, logreg_optimiser):
 
     # input variables
     feature_var = (tt.tensor3('feature_input', dtype='float32')
@@ -52,13 +52,30 @@ def build_net(feature_shape, optimiser, out_size_chroma, out_size_chords,
                                 shape=(None,) + feature_shape,
                                 input_var=feature_var)
 
-    if conv:
+    if chroma_extractor['type'] == 'conv':
         # reshape to 1 "color" channel
         net = lnn.layers.reshape(net, shape=(-1, 1) + feature_shape,
                                  name='reshape')
-        net = convnet.stack_layers(net, batch_norm, conv)
 
-    net = dnn.stack_layers(net, batch_norm, **dense)
+        net = convnet.stack_layers(
+            net=net,
+            batch_norm=chroma_extractor['net']['batch_norm'],
+            convs=[chroma_extractor['net'][c]
+                   for c in ['conv1', 'conv2', 'conv3']]
+        )
+
+        net = dnn.stack_layers(net, **chroma_extractor['net']['dense'])
+
+    elif chroma_extractor['type'] == 'dense':
+        dense = chroma_extractor['net']
+        net = dnn.stack_layers(
+            inp=net,
+            batch_norm=dense['batch_norm'],
+            nonlinearity=dense['nonlinearity'],
+            num_layers=dense['num_layers'],
+            num_units=dense['num_units'],
+            dropout=dense['dropout']
+        )
 
     # output layers
     chrm = lnn.layers.DenseLayer(
@@ -79,10 +96,10 @@ def build_net(feature_shape, optimiser, out_size_chroma, out_size_chords,
     # create chroma train function
     chrm_prediction = lnn.layers.get_output(chrm)
     l2_chrm = lnn.regularization.regularize_network_params(
-        chrm, lnn.regularization.l2) * l2
+        chrm, lnn.regularization.l2) * chroma_extractor['net']['l2']
     chrm_loss = compute_chroma_loss(chrm_prediction, chroma_var) + l2_chrm
     chrm_params = lnn.layers.get_all_params(chrm, trainable=True)
-    chrm_updates = optimiser(chrm_loss, chrm_params)
+    chrm_updates = chroma_optimiser(chrm_loss, chrm_params)
     train_chroma = theano.function(
         [feature_var, chroma_var], chrm_loss, updates=chrm_updates)
 
@@ -105,10 +122,10 @@ def build_net(feature_shape, optimiser, out_size_chroma, out_size_chords,
     crds_prediction = lnn.layers.get_output(crds)
     l2_crds = lnn.regularization.regularize_network_params(
         crds, lnn.regularization.l2,
-        tags={'regularizable': True, 'chord': True}) * l2
+        tags={'regularizable': True, 'chord': True}) * chroma_extractor['net']['l2']
     crds_loss = dnn.compute_loss(crds_prediction, chord_var) + l2_crds
     crds_params = lnn.layers.get_all_params(crds, trainable=True, chord=True)
-    crds_updates = optimiser(crds_loss, crds_params)
+    crds_updates = logreg_optimiser(crds_loss, crds_params)
     train_chords = theano.function(
         [feature_var, chord_var], crds_loss, updates=crds_updates
     )
@@ -166,22 +183,12 @@ def config():
 
     target = None
 
-    net = dict(
-        conv={},
-        dense=dict(
-            num_layers=3,
-            num_units=256,
-            dropout=0.5,
-            nonlinearity='rectify',
-        ),
-        l2=1e-4,
-        batch_norm=False,
-    )
+    chroma_extractor = None
 
     optimiser = dict(
         name='adam',
         params=dict(
-            learning_rate=0.0001
+            learning_rate=0.001
         ),
         schedule=None
     )
@@ -199,28 +206,99 @@ def config():
 
 
 @ex.named_config
+def dense_net():
+    chroma_extractor = dict(
+        type='dense',
+        net=dict(
+            num_layers=3,
+            num_units=512,
+            dropout=0.5,
+            nonlinearity='rectify',
+            batch_norm=False,
+            l2=1e-4,
+        ),
+        optimiser=dict(
+            name='adam',
+            params=dict(
+                learning_rate=0.0001
+            ),
+            schedule=None
+        ),
+        training=dict(
+            num_epochs=500,
+            early_stop=20,
+            batch_size=512,
+            early_stop_acc=False,
+        )
+    )
+
+
+@ex.named_config
+def conv_net():
+    chroma_extractor = dict(
+        type='conv',
+        net=dict(
+            batch_norm=True,
+            conv1=dict(
+                num_layers=2,
+                num_filters=8,
+                filter_size=(3, 3),
+                pool_size=(1, 2),
+                dropout=0.5,
+            ),
+            conv2=dict(
+                num_layers=1,
+                num_filters=16,
+                filter_size=(3, 3),
+                pool_size=(1, 2),
+                dropout=0.5,
+            ),
+            conv3={},
+            dense=dict(
+                num_layers=1,
+                num_units=256,
+                dropout=0.5,
+                nonlinearity='rectify',
+                batch_norm=False
+            ),
+            global_avg_pool=None,
+            l2=1e-4,
+            l1=0
+        ),
+        optimiser=dict(
+            name='adam',
+            params=dict(
+                learning_rate=0.001
+            ),
+            schedule=None
+        ),
+        training=dict(
+            num_epochs=500,
+            early_stop=20,
+            early_stop_acc=False,
+            batch_size=2048,
+        )
+    )
+
+
+@ex.named_config
 def no_context():
     datasource = dict(
         context_size=0
     )
 
-    net = dict(
-        num_units=100,
-        dropout=0.3,
-        l2_lambda=0.
-    )
-
 
 @ex.automain
-def main(_config, _run, observations, datasource, net, feature_extractor,
-         target, optimiser, training):
+def main(_config, _run, observations, datasource, feature_extractor,
+         chroma_extractor, target, optimiser, training, testing):
 
     if feature_extractor is None:
         print(Colors.red('ERROR: Specify a feature extractor!'))
         return 1
 
-    if target is not None:
-        print(Colors.red('WARNING: Selected target ignored.'))
+    if chroma_extractor is None:
+        print(Colors.red('ERROR: Specify a chroma extractor!'))
+        return 1
 
     if not isinstance(datasource['test_fold'], collections.Iterable):
         datasource['test_fold'] = [datasource['test_fold']]
@@ -273,6 +351,9 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
                 cached=datasource['cached']
             )
 
+            if testing['test_on_val']:
+                test_set = val_set
+
             print(Colors.blue('Train Set:'))
             print('\t', train_set)
 
@@ -286,13 +367,18 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
             # build network
             print(Colors.red('Building network...\n'))
 
-            opt, learn_rate = create_optimiser(optimiser)
+            chroma_optimiser, chroma_learn_rate = create_optimiser(
+                chroma_extractor['optimiser'])
+
+            logreg_optimiser, logreg_learn_rate = create_optimiser(optimiser)
+
             chroma_net, chords_net = build_net(
                 feature_shape=train_set.feature_shape,
-                optimiser=opt,
                 out_size_chroma=train_set.target_shape[0],
                 out_size_chords=target_chords.num_classes,
-                **net
+                chroma_extractor=chroma_extractor,
+                chroma_optimiser=chroma_optimiser,
+                logreg_optimiser=logreg_optimiser,
             )
 
             print(Colors.blue('Chroma Network:'))
@@ -309,16 +395,21 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
             if optimiser['schedule'] is not None:
                 updates.append(
                     nn.LearnRateSchedule(
-                        learn_rate=learn_rate, **optimiser['schedule'])
+                        learn_rate=chroma_learn_rate,
+                        **chroma_extractor['optimiser']['schedule'])
                 )
 
-            best_params, train_losses, val_losses = nn.train(
-                chroma_net, train_set, n_epochs=training['num_epochs'],
-                batch_size=training['batch_size'], validation_set=val_set,
-                early_stop=training['early_stop'],
-                early_stop_acc=training['early_stop_acc'],
+            chroma_training = chroma_extractor['training']
+
+            best_params, chroma_train_losses, chroma_val_losses = nn.train(
+                chroma_net, train_set, n_epochs=chroma_training['num_epochs'],
+                batch_size=chroma_training['batch_size'],
+                validation_set=val_set,
+                early_stop=chroma_training['early_stop'],
+                early_stop_acc=chroma_training['early_stop_acc'],
                 threaded=10,
                 updates=updates,
+                acc_func=nn.nn.binwise_correct
             )
 
             # we need to create a new dataset with a new target (chords)
@@ -333,10 +424,13 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
                 compute_features=feature_ext,
                 compute_targets=target_chords,
                 context_size=datasource['context_size'],
-                test_fold=datasource['test_fold'],
-                val_fold=datasource['val_fold'],
+                test_fold=test_fold,
+                val_fold=val_fold,
                 cached=datasource['cached']
             )
+
+            if testing['test_on_val']:
+                test_set = val_set
 
             print(Colors.blue('Train Set:'))
             print('\t', train_set)
