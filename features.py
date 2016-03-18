@@ -161,6 +161,14 @@ class Chroma:
 class ChromaCq:
 
     def __init__(self, fps, win_center, win_width, log_eta, sample_rate=44100):
+        """
+        Computes Chromas from a constant q transform.
+        :param fps:          frames per second
+        :param win_center:   midi number of window center note
+        :param win_width:    width of weighting window
+        :param log_eta:      scaling parameter for log
+        :param sample_rate:  sample rate of the audio
+        """
         self.fps = fps
         self.sample_rate = sample_rate
         self.num_bins = 84

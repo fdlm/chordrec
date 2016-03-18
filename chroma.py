@@ -490,6 +490,12 @@ def main(_config, _run, observations, datasource, feature_extractor,
                       open(result_file, 'w'))
             ex.add_artifact(result_file)
 
+            # close all files
+            del train_set
+            del val_set
+            del test_set
+            del gt_files
+
         # if there is something to aggregate
         if len(datasource['test_fold']) > 1:
             print(Colors.yellow('\nAggregated Results:\n'))
