@@ -53,20 +53,21 @@ class ConstantQ:
 
 class LogFiltSpec:
 
-    def __init__(self, frame_sizes, num_bands, fmax, fps, unique_filters,
+    def __init__(self, frame_sizes, num_bands, fmin, fmax, fps, unique_filters,
                  sample_rate=44100):
 
         self.frame_sizes = frame_sizes
         self.num_bands = num_bands
         self.fmax = fmax
+        self.fmin = fmin
         self.fps = fps
         self.unique_filters = unique_filters
         self.sample_rate = sample_rate
 
     @property
     def name(self):
-        return 'lfs_fps={}_num-bands={}_fmax={}_frame_sizes=[{}]'.format(
-                self.fps, self.num_bands, self.fmax,
+        return 'lfs_fps={}_num-bands={}_fmin={}_fmax={}_frame_sizes=[{}]'.format(
+                self.fps, self.num_bands, self.fmin, self.fmax,
                 '-'.join(map(str, self.frame_sizes))
         )
 
@@ -77,7 +78,7 @@ class LogFiltSpec:
             mm.audio.spectrogram.LogarithmicFilteredSpectrogram(
                 audio_file, num_channels=1, sample_rate=self.sample_rate,
                 fps=self.fps, frame_size=ffts,
-                num_bands=self.num_bands, fmax=self.fmax,
+                num_bands=self.num_bands, fmin=self.fmin, fmax=self.fmax,
                 unique_filters=self.unique_filters)
             for ffts in self.frame_sizes
         ]
@@ -283,6 +284,7 @@ def add_sacred_config(ex):
                 fps=10,
                 frame_sizes=[8192],
                 num_bands=24,
+                fmin=30,
                 fmax=5500,
                 unique_filters=False,
             )

@@ -57,7 +57,7 @@ def compute_labeling(network, target, agg_dataset, dest_dir, rnn,
     return pred_files
 
 
-def compute_average_scores(annotation_files, prediction_files):
+def compute_scores(annotation_files, prediction_files):
     assert len(annotation_files) == len(prediction_files)
     assert len(annotation_files) > 0
     import mir_eval
@@ -75,19 +75,29 @@ def compute_average_scores(annotation_files, prediction_files):
         total_length += song_length
 
         scores.append(
-            (song_length,
+            (pf, song_length,
              mir_eval.chord.evaluate(ann_int, ann_lab, pred_int, pred_lab))
         )
 
-    # initialise the average score with all metrics and values 0.
-    avg_score = {metric: 0. for metric in scores[0][1]}
+    return scores, total_length
 
-    for length, score in scores:
+
+def average_scores(scores, total_length):
+    # initialise the average score with all metrics and values 0.
+    avg_score = {metric: 0. for metric in scores[0][-1]}
+
+    for _, length, score in scores:
         weight = length / total_length
         for metric in score:
             avg_score[metric] += float(weight * score[metric])
 
     return avg_score
+
+
+def compute_average_scores(annotation_files, prediction_files):
+    # first, compute all individual scores
+    scores, total_length = compute_scores(annotation_files, prediction_files)
+    return average_scores(scores, total_length)
 
 
 def print_scores(scores):
