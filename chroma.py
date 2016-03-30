@@ -395,7 +395,7 @@ def main(_config, _run, observations, datasource, feature_extractor,
             if optimiser['schedule'] is not None:
                 updates.append(
                     nn.LearnRateSchedule(
-                        learn_rate=chroma_learn_rate,
+                        learning_rate=chroma_learn_rate,
                         **chroma_extractor['optimiser']['schedule'])
                 )
 
@@ -409,7 +409,7 @@ def main(_config, _run, observations, datasource, feature_extractor,
                 early_stop_acc=chroma_training['early_stop_acc'],
                 threaded=10,
                 updates=updates,
-                acc_func=nn.nn.binwise_correct
+                acc_func=nn.nn.elemwise_acc
             )
 
             # we need to create a new dataset with a new target (chords)
@@ -461,7 +461,7 @@ def main(_config, _run, observations, datasource, feature_extractor,
 
             pred_files = test.compute_labeling(
                 chords_net, target_chords, test_set, dest_dir=exp_dir,
-                rnn=False
+                use_mask=False
             )
 
             # compute chroma vectors for the test set

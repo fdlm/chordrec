@@ -1,22 +1,23 @@
 from __future__ import print_function
-import os
+
 import collections
+import os
+
 import numpy as np
 import theano
 import theano.tensor as tt
-import lasagne as lnn
 import yaml
 from sacred import Experiment
 
-import nn
-import dmgr
-from nn.utils import Colors
-
-import test
 import data
+import dmgr
 import features
+import lasagne as lnn
+import nn
 import targets
+import test
 from exp_utils import PickleAndSymlinkObserver, TempDir, create_optimiser
+from nn.utils import Colors
 
 # Initialise Sacred experiment
 ex = Experiment('Recurrent Neural Network')
@@ -29,29 +30,13 @@ targets.add_sacred_config(ex)
 def compute_loss(prediction, target, mask):
     # need to clip predictions for numerical stability
     eps = 1e-7
-    pred_clip = tt.clip(prediction, eps, 1.-eps)
+    pred_clip = tt.clip(prediction, eps, 1. - eps)
     loss = lnn.objectives.categorical_crossentropy(pred_clip, target)
     return lnn.objectives.aggregate(loss, mask, mode='normalized_sum')
 
 
-def build_net(feature_shape, out_size, optimiser, l2, num_rec_units,
-              num_layers, dropout, grad_clip, nonlinearity, bidirectional):
-    # input variables
-    feature_var = tt.tensor3('feature_input', dtype='float32')
-    target_var = tt.tensor3('target_output', dtype='float32')
-    mask_var = tt.matrix('mask_input', dtype='float32')
-
-    # stack more layers
-    net = lnn.layers.InputLayer(
-            name='input', shape=(None, None) + feature_shape,
-            input_var=feature_var
-    )
-
-    true_batch_size, true_seq_len, _ = feature_var.shape
-
-    mask_in = lnn.layers.InputLayer(name='mask',
-                                    input_var=mask_var,
-                                    shape=(None, None))
+def stack_layers(net, mask_in, num_rec_units, num_layers, dropout, grad_clip,
+                 bidirectional, nonlinearity):
 
     if nonlinearity != 'LSTM':
         nl = getattr(lnn.nonlinearities, nonlinearity)
@@ -79,52 +64,57 @@ def build_net(feature_shape, out_size, optimiser, l2, num_rec_units,
             fwd = lnn.layers.DropoutLayer(fwd, p=dropout)
 
     if not bidirectional:
-        net = fwd
-    else:
-        bck = net
-        for i in range(num_layers):
-            bck = add_layer(bck, name='rec_bck_{}'.format(i), backwards=True)
-            if dropout > 0:
-                bck = lnn.layers.DropoutLayer(bck, p=dropout)
+        return net
 
-        # combine the forward and backward recurrent layers...
-        net = lnn.layers.ConcatLayer([fwd, bck], name='fwd + bck', axis=-1)
+    bck = net
+    for i in range(num_layers):
+        bck = add_layer(bck, name='rec_bck_{}'.format(i), backwards=True)
+        if dropout > 0:
+            bck = lnn.layers.DropoutLayer(bck, p=dropout)
+
+    # combine the forward and backward recurrent layers...
+    net = lnn.layers.ConcatLayer([fwd, bck], name='fwd + bck', axis=-1)
+    return net
+
+
+def build_net(feature_shape, out_size, net):
+    # input variables
+    input_var = tt.tensor3('input', dtype='float32')
+    target_var = tt.tensor3('target_output', dtype='float32')
+    mask_var = tt.matrix('mask_input', dtype='float32')
+
+    # stack more layers
+    network = lnn.layers.InputLayer(
+        name='input', shape=(None, None) + feature_shape,
+        input_var=input_var
+    )
+
+    true_batch_size, true_seq_len, _ = input_var.shape
+
+    mask_in = lnn.layers.InputLayer(name='mask',
+                                    input_var=mask_var,
+                                    shape=(None, None))
+
+    network = stack_layers(network, mask_in, **net)
 
     # In order to connect a recurrent layer to a dense layer, we need to
     # flatten the first two dimensions (our "sample dimensions"); this will
     # cause each time step of each sequence to be processed independently
-    net = lnn.layers.ReshapeLayer(net, (-1, num_rec_units * 2),
-                                  name='reshape to single')
+    network = lnn.layers.ReshapeLayer(
+        network, (-1, lnn.layers.get_output_shape(network)[-1]),
+        name='reshape to single')
 
-    net = lnn.layers.DenseLayer(net, num_units=out_size,
-                                nonlinearity=lnn.nonlinearities.softmax,
-                                name='output')
+    network = lnn.layers.DenseLayer(
+        network, num_units=out_size, nonlinearity=lnn.nonlinearities.softmax,
+        name='output')
+
     # To reshape back to our original shape, we can use the symbolic shape
     # variables we retrieved above.
-    net = lnn.layers.ReshapeLayer(net,
-                                  (true_batch_size, true_seq_len, out_size),
-                                  name='output-reshape')
+    network = lnn.layers.ReshapeLayer(
+        network, (true_batch_size, true_seq_len, out_size),
+        name='output-reshape')
 
-    # create train function
-    prediction = lnn.layers.get_output(net)
-    l2_penalty = lnn.regularization.regularize_network_params(
-        net, lnn.regularization.l2) * l2
-    loss = compute_loss(prediction, target_var, mask_var) + l2_penalty
-    params = lnn.layers.get_all_params(net, trainable=True)
-    updates = optimiser(loss, params)
-    train = theano.function([feature_var, mask_var, target_var], loss,
-                            updates=updates)
-
-    # create test and process function. process just computes the prediction
-    # without computing the loss, and thus does not need target labels
-    test_prediction = lnn.layers.get_output(net, deterministic=True)
-    test_loss = (compute_loss(test_prediction, target_var, mask_var) +
-                 l2_penalty)
-    test = theano.function([feature_var, mask_var, target_var],
-                           [test_loss, test_prediction])
-    process = theano.function([feature_var, mask_var], test_prediction)
-
-    return nn.NeuralNetwork(net, train, test, process)
+    return network, input_var, mask_var, target_var
 
 
 @ex.config
@@ -136,11 +126,10 @@ def config():
     target = None
 
     net = dict(
-        l2=1e-4,
         num_rec_units=128,
         num_layers=3,
         dropout=0.3,
-        grad_clip=1.,
+        grad_clip=0,
         bidirectional=True,
         nonlinearity='rectify'
     )
@@ -157,8 +146,13 @@ def config():
         num_epochs=1000,
         early_stop=20,
         early_stop_acc=True,
-        batch_size=64,
+        batch_size=32,
         max_seq_len=1024
+    )
+
+    regularisation = dict(
+        l1=0.0,
+        l2=1e-8,
     )
 
     testing = dict(
@@ -176,7 +170,7 @@ def lstm():
 
 @ex.automain
 def main(_config, _run, observations, datasource, net, feature_extractor,
-         target, optimiser, training, testing):
+         regularisation, target, optimiser, training, testing):
 
     if feature_extractor is None:
         print(Colors.red('ERROR: Specify a feature extractor!'))
@@ -246,48 +240,53 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
             # build network
             print(Colors.red('Building network...\n'))
 
-            opt, learn_rate = create_optimiser(optimiser)
-
-            neural_net = build_net(
+            neural_net, input_var, mask_var, target_var = build_net(
                 feature_shape=train_set.feature_shape,
                 out_size=train_set.target_shape[0],
-                optimiser=opt,
-                **net
+                net=net
             )
 
+            opt, lrs = create_optimiser(optimiser)
+
+            train_fn = nn.compile_train_fn(
+                neural_net, input_var, target_var,
+                loss_fn=compute_loss, opt_fn=opt, mask_var=mask_var,
+                **regularisation
+            )
+
+            test_fn = nn.compile_test_func(
+                neural_net, input_var, target_var,
+                loss_fn=compute_loss, mask_var=mask_var,
+                **regularisation
+            )
+
+            process_fn = nn.compile_process_func(neural_net, input_var,
+                                                 mask_var)
             print(Colors.blue('Neural Network:'))
-            print(neural_net)
+            print(nn.to_string(neural_net))
             print('')
 
             print(Colors.red('Starting training...\n'))
 
-            updates = []
-            if optimiser['schedule'] is not None:
-                updates.append(
-                    nn.LearnRateSchedule(
-                        learn_rate=learn_rate, **optimiser['schedule'])
-                )
-
-            best_params, train_losses, val_losses = nn.train(
-                neural_net, train_set, n_epochs=training['num_epochs'],
-                batch_size=training['batch_size'], validation_set=val_set,
-                early_stop=training['early_stop'],
+            train_losses, val_losses, val_accs = nn.train(
+                network=neural_net,
+                train_fn=train_fn, train_set=train_set,
+                test_fn=test_fn, validation_set=val_set,
+                threaded=10, updates=[lrs] if lrs else [],
                 batch_iterator=dmgr.iterators.iterate_datasources,
-                sequence_length=training['max_seq_len'],
-                threaded=10,
-                updates=updates
+                **training
             )
 
             print(Colors.red('\nStarting testing...\n'))
 
             param_file = os.path.join(
                 exp_dir, 'params_fold_{}.pkl'.format(test_fold))
-            neural_net.save_parameters(param_file)
+            nn.save_params(neural_net, param_file)
             ex.add_artifact(param_file)
 
             pred_files = test.compute_labeling(
-                neural_net, target_computer, test_set, dest_dir=exp_dir,
-                rnn=True
+                process_fn, target_computer, test_set, dest_dir=exp_dir,
+                use_mask=True
             )
 
             test_gt_files = dmgr.files.match_files(
@@ -300,12 +299,12 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
             print(Colors.red('\nResults:\n'))
             scores = test.compute_average_scores(test_gt_files, pred_files)
             test.print_scores(scores)
-
             result_file = os.path.join(
                 exp_dir, 'results_fold_{}.yaml'.format(test_fold))
             yaml.dump(dict(scores=scores,
                            train_losses=map(float, train_losses),
-                           val_losses=map(float, val_losses)),
+                           val_losses=map(float, val_losses),
+                           val_accs=map(float, val_accs)),
                       open(result_file, 'w'))
             ex.add_artifact(result_file)
 

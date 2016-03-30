@@ -8,16 +8,17 @@ from nn.utils import Colors
 PREDICTION_EXT = '.chords.txt'
 
 
-def compute_labeling(network, target, agg_dataset, dest_dir, rnn,
+# TODO: What does add_time_dim do and how can I remove it?
+def compute_labeling(process_fn, target, agg_dataset, dest_dir, use_mask,
                      add_time_dim=False, extension='.chords.txt'):
     """
     Computes and saves the labels for each datasource in an aggragated
     datasource
-    :param network:     neural network
+    :param process_fn:  theano function that gives the nn's output
     :param target:      target computer
     :param agg_dataset: aggragated datasource.
     :param dest_dir:    where to store predicted chord labels
-    :param rnn:         if the network is an rnn
+    :param use_mask:         if the network is an rnn
     :param extension:   file extension of the resulting files
     :return:            list of files containing the predictions
     """
@@ -40,13 +41,13 @@ def compute_labeling(network, target, agg_dataset, dest_dir, rnn,
         if add_time_dim:
             data = data[:, np.newaxis, ...]
 
-        if rnn:
+        if use_mask:
             data = data[np.newaxis, :]
             mask = np.ones(data.shape[:2], dtype=np.float32)
 
-            pred = network.process(data, mask)[0]
+            pred = process_fn(data, mask)[0]
         else:
-            pred = network.process(data)
+            pred = process_fn(data)
 
         pred = pred.argmax(axis=1)
 

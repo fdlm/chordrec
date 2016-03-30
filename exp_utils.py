@@ -9,6 +9,7 @@ import lasagne as lnn
 import theano
 import numpy as np
 from functools import partial
+import nn
 
 
 class TempDir:
@@ -24,12 +25,27 @@ class TempDir:
 
 
 def create_optimiser(optimiser):
-    lr = theano.shared(np.float32(
-        optimiser['params']['learning_rate']))
-    op = {k: v for k, v in optimiser['params'].iteritems()
-          if k != 'learning_rate'}
-    return partial(
-        getattr(lnn.updates, optimiser['name']), learning_rate=lr, **op), lr
+    """
+    Creates a function that returns an optimiser and (optional) a learn
+    rate schedule
+    """
+
+    if optimiser['schedule'] is not None:
+        # if we have a learn rate schedule, create a theano shared
+        # variable and a corresponding update
+        lr = theano.shared(np.float32(optimiser['params']['learning_rate']))
+
+        # create a copy of the optimiser config dict so we do not change
+        # it
+        from copy import deepcopy
+        optimiser = deepcopy(optimiser)
+        optimiser['params']['learning_rate'] = lr
+        lrs = nn.LearnRateSchedule(learning_rate=lr, **optimiser['schedule'])
+    else:
+        lrs = None
+
+    return partial(getattr(lnn.updates, optimiser['name']),
+                   **optimiser['params']), lrs
 
 
 def rhash(d):

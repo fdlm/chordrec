@@ -1,24 +1,22 @@
 from __future__ import print_function
-import os
+
 import collections
-import theano
+import os
+
 import theano.tensor as tt
-import lasagne as lnn
 import yaml
 from sacred import Experiment
-from operator import itemgetter
 
-
-import nn
-import dmgr
-from nn.utils import Colors
-
-import test
 import data
-import targets
-import features
+import dmgr
 import dnn
+import features
+import lasagne as lnn
+import nn
+import targets
+import test
 from exp_utils import PickleAndSymlinkObserver, TempDir, create_optimiser
+from nn.utils import Colors
 
 # Initialise Sacred experiment
 ex = Experiment('Convolutional Neural Network')
@@ -35,9 +33,9 @@ def compute_loss(prediction, target):
     return lnn.objectives.categorical_crossentropy(pred_clip, target).mean()
 
 
-def stack_layers(net, batch_norm, convs):
+def stack_layers(net, batch_norm, conv1, conv2, conv3):
 
-    for i, conv in enumerate(convs):
+    for i, conv in enumerate([conv1, conv2, conv3]):
         if not conv:
             continue
         for k in range(conv['num_layers']):
@@ -56,22 +54,23 @@ def stack_layers(net, batch_norm, convs):
     return net
 
 
-def add_gap_out(net, gap, batch_norm, out_size):
+def stack_gap(net, out_size, num_filters, filter_size, dropout, batch_norm):
     net = lnn.layers.Conv2DLayer(
-        net, num_filters=gap['num_filters'], filter_size=gap['filter_size'],
+        net, num_filters=num_filters, filter_size=filter_size,
         pad=0, nonlinearity=lnn.nonlinearities.rectify,
         name='Gap_Filters')
     if batch_norm:
         net = lnn.layers.batch_norm(net)
-    net = lnn.layers.DropoutLayer(net, p=gap['dropout'])
+
+    net = lnn.layers.DropoutLayer(net, p=dropout)
 
     net = lnn.layers.Conv2DLayer(
-        net, num_filters=gap['num_filters'], filter_size=1,
+        net, num_filters=num_filters, filter_size=1,
         pad=0, nonlinearity=lnn.nonlinearities.rectify,
         name='Gap_Filters_Single')
     if batch_norm:
         net = lnn.layers.batch_norm(net)
-    net = lnn.layers.DropoutLayer(net, p=gap['dropout'])
+    net = lnn.layers.DropoutLayer(net, p=dropout)
 
     # output classification layer
     net = lnn.layers.Conv2DLayer(
@@ -90,55 +89,37 @@ def add_gap_out(net, gap, batch_norm, out_size):
     return net
 
 
-def build_net(feature_shape, batch_size, optimiser, out_size,
-              batch_norm, conv1, conv2, conv3, dense, global_avg_pool, l2, l1):
+def build_net(feature_shape, out_size, net):
+
+    if net['dense'] and net['global_avg_pool']:
+        raise ValueError('Cannot use dense layers AND global avg. pool.')
 
     # input variables
-    feature_var = tt.tensor3('feature_input', dtype='float32')
+    input_var = tt.tensor3('feature_input', dtype='float32')
     target_var = tt.matrix('target_output', dtype='float32')
 
     # stack more layers
-    net = lnn.layers.InputLayer(name='input',
-                                shape=(batch_size,) + feature_shape,
-                                input_var=feature_var)
+    network = lnn.layers.InputLayer(
+        name='input', shape=(None,) + feature_shape, input_var=input_var)
 
     # reshape to 1 "color" channel
-    net = lnn.layers.reshape(net, shape=(-1, 1) + feature_shape,
-                             name='reshape')
+    network = lnn.layers.reshape(
+        network, shape=(-1, 1) + feature_shape, name='reshape')
 
-    net = stack_layers(net, batch_norm, [conv1, conv2, conv3])
+    network = stack_layers(network, **net['conv'])
 
-    if dense:
-        net = dnn.stack_layers(net, **dense)
+    if net['dense']:
+        network = dnn.stack_layers(network, **net['dense'])
         # output classification layer
-        net = lnn.layers.DenseLayer(net, name='output', num_units=out_size,
-                                    nonlinearity=lnn.nonlinearities.softmax)
-    elif global_avg_pool:
-        net = add_gap_out(net, global_avg_pool, batch_norm, out_size)
+        network = lnn.layers.DenseLayer(
+            network, name='output', num_units=out_size,
+            nonlinearity=lnn.nonlinearities.softmax)
+    elif net['global_avg_pool']:
+        network = stack_gap(network, out_size, **net['global_avg_pool'])
     else:
         raise RuntimeError('Need to specify output architecture!')
 
-    # create train function
-    prediction = lnn.layers.get_output(net)
-    l2_penalty = lnn.regularization.regularize_network_params(
-            net, lnn.regularization.l2) * l2
-    l1_penalty = lnn.regularization.regularize_network_params(
-        net, lnn.regularization.l1) * l1
-    loss = compute_loss(prediction, target_var) + l2_penalty + l1_penalty
-    params = lnn.layers.get_all_params(net, trainable=True)
-    updates = optimiser(loss, params)
-    train = theano.function([feature_var, target_var], loss,
-                           updates=updates)
-
-    # create test and process function. process just computes the prediction
-    # without computing the loss, and thus does not need target labels
-    test_prediction = lnn.layers.get_output(net, deterministic=True)
-    test_loss = compute_loss(test_prediction, target_var) + l2_penalty
-    test = theano.function([feature_var, target_var],
-                           [test_loss, test_prediction])
-    process = theano.function([feature_var], test_prediction)
-
-    return nn.NeuralNetwork(net, train, test, process)
+    return network, input_var, target_var
 
 
 @ex.config
@@ -154,22 +135,25 @@ def config():
     target = None
 
     net = dict(
-        batch_norm=False,
-        conv1=dict(
-            num_layers=2,
-            num_filters=32,
-            filter_size=(3, 3),
-            pool_size=(1, 2),
-            dropout=0.5,
+        conv=dict(
+            batch_norm=False,
+            conv1=dict(
+                num_layers=2,
+                num_filters=32,
+                filter_size=(3, 3),
+                pool_size=(1, 2),
+                dropout=0.5,
+            ),
+            conv2=dict(
+                num_layers=1,
+                num_filters=64,
+                filter_size=(3, 3),
+                pool_size=(1, 2),
+                dropout=0.5,
+            ),
+            conv3={},
         ),
-        conv2=dict(
-            num_layers=1,
-            num_filters=64,
-            filter_size=(3, 3),
-            pool_size=(1, 2),
-            dropout=0.5,
-        ),
-        conv3={},
+        global_avg_pool=None,
         dense=dict(
             num_layers=1,
             num_units=512,
@@ -177,15 +161,12 @@ def config():
             nonlinearity='rectify',
             batch_norm=False
         ),
-        global_avg_pool=None,
-        l2=1e-4,
-        l1=0
     )
 
     optimiser = dict(
         name='adam',
         params=dict(
-                learning_rate=0.001
+            learning_rate=0.001
         ),
         schedule=None
     )
@@ -195,6 +176,11 @@ def config():
         early_stop=20,
         early_stop_acc=True,
         batch_size=512,
+    )
+
+    regularisation = dict(
+        l2=1e-4,
+        l1=0
     )
 
     testing = dict(
@@ -222,7 +208,8 @@ def gap_classifier():
         global_avg_pool=dict(
             num_filters=512,
             filter_size=(3, 3),
-            dropout=0.5
+            dropout=0.5,
+            batch_norm=True
         )
     )
 
@@ -239,14 +226,15 @@ def learn_rate_schedule():
 
 @ex.automain
 def main(_config, _run, observations, datasource, net, feature_extractor,
-         target, optimiser, training, testing):
+         regularisation, target, optimiser, training, testing):
 
     if feature_extractor is None:
         print(Colors.red('ERROR: Specify a feature extractor!'))
         return 1
 
-    # Load data sets
-    print(Colors.red('Loading data...\n'))
+    if target is None:
+        print(Colors.red('ERROR: Specify a target!'))
+        return 1
 
     target_computer = targets.create_target(
         feature_extractor['params']['fps'],
@@ -299,10 +287,8 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
 
             print(Colors.blue('Train Set:'))
             print('\t', train_set)
-
             print(Colors.blue('Validation Set:'))
             print('\t', val_set)
-
             print(Colors.blue('Test Set:'))
             print('\t', test_set)
             print('')
@@ -310,48 +296,52 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
             # build network
             print(Colors.red('Building network...\n'))
 
-            opt, learn_rate = create_optimiser(optimiser)
-
-            neural_net = build_net(
+            neural_net, input_var, target_var = build_net(
                 feature_shape=train_set.feature_shape,
-                batch_size=None,
-                optimiser=opt,
                 out_size=train_set.target_shape[0],
-                **net
+                net=net
             )
 
+            opt, lrs = create_optimiser(optimiser)
+
+            train_fn = nn.compile_train_fn(
+                neural_net, input_var, target_var,
+                loss_fn=compute_loss, opt_fn=opt,
+                **regularisation
+            )
+
+            test_fn = nn.compile_test_func(
+                neural_net, input_var, target_var,
+                loss_fn=compute_loss,
+                **regularisation
+            )
+
+            process_fn = nn.compile_process_func(neural_net, input_var)
+
             print(Colors.blue('Neural Network:'))
-            print(neural_net)
+            print(nn.to_string(neural_net))
             print('')
 
             print(Colors.red('Starting training...\n'))
 
-            updates = []
-            if optimiser['schedule'] is not None:
-                updates.append(
-                    nn.LearnRateSchedule(
-                        learn_rate=learn_rate, **optimiser['schedule'])
-                )
-
-            best_params, train_losses, val_losses = nn.train(
-                neural_net, train_set, n_epochs=training['num_epochs'],
-                batch_size=training['batch_size'], validation_set=val_set,
-                early_stop=training['early_stop'],
-                threaded=10,
-                early_stop_acc=training['early_stop_acc'],
-                updates=updates
+            train_losses, val_losses, val_accs = nn.train(
+                network=neural_net,
+                train_fn=train_fn, train_set=train_set,
+                test_fn=test_fn, validation_set=val_set,
+                threaded=10, updates=[lrs] if lrs else [],
+                **training
             )
 
             print(Colors.red('\nStarting testing...\n'))
 
             param_file = os.path.join(
                 exp_dir, 'params_fold_{}.pkl'.format(test_fold))
-            neural_net.save_parameters(param_file)
+            nn.save_params(neural_net, param_file)
             ex.add_artifact(param_file)
 
             pred_files = test.compute_labeling(
-                neural_net, target_computer, test_set, dest_dir=exp_dir,
-                rnn=False
+                process_fn, target_computer, test_set, dest_dir=exp_dir,
+                use_mask=False
             )
 
             test_gt_files = dmgr.files.match_files(
@@ -363,16 +353,13 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
 
             print(Colors.blue('Results:'))
             scores = test.compute_average_scores(test_gt_files, pred_files)
-            # convert to float so yaml output looks nice
-            for k in scores:
-                scores[k] = float(scores[k])
             test.print_scores(scores)
-
             result_file = os.path.join(
                 exp_dir, 'results_fold_{}.yaml'.format(test_fold))
             yaml.dump(dict(scores=scores,
                            train_losses=map(float, train_losses),
-                           val_losses=map(float, val_losses)),
+                           val_losses=map(float, val_losses),
+                           val_accs=map(float, val_accs)),
                       open(result_file, 'w'))
             ex.add_artifact(result_file)
 
@@ -380,9 +367,6 @@ def main(_config, _run, observations, datasource, net, feature_extractor,
         if len(datasource['test_fold']) > 1:
             print(Colors.yellow('\nAggregated Results:\n'))
             scores = test.compute_average_scores(all_gt_files, all_pred_files)
-            # convert to float so yaml output looks nice
-            for k in scores:
-                scores[k] = float(scores[k])
             test.print_scores(scores)
             result_file = os.path.join(exp_dir, 'results.yaml')
             yaml.dump(dict(scores=scores), open(result_file, 'w'))

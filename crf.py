@@ -411,7 +411,7 @@ def train_and_test(net, train_set, val_set, test_set, gt_files,
 
     pred_files = test.compute_labeling(
         net, target_computer, test_set, dest_dir=dest_dir,
-        rnn=rnn, add_time_dim=kwargs.get('add_time_dim', False)
+        use_mask=rnn, add_time_dim=kwargs.get('add_time_dim', False)
     )
 
     test_gt_files = dmgr.files.match_files(
@@ -435,7 +435,7 @@ def train_and_test(net, train_set, val_set, test_set, gt_files,
 def optimiser_and_updates(optimiser):
     opt, lr = create_optimiser(optimiser)
     if 'schedule' in optimiser and optimiser['schedule'] is not None:
-        upd = [nn.LearnRateSchedule(learn_rate=lr, **optimiser['schedule'])]
+        upd = [nn.LearnRateSchedule(learning_rate=lr, **optimiser['schedule'])]
     else:
         upd = []
 
