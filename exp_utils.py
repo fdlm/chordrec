@@ -275,8 +275,8 @@ def run_experiment(ex, build_fn, loss_fn,
             print(Colors.red('Building network...\n'))
 
             nnet_vars = build_fn(
-                feature_shape=train_set.feature_shape,
-                out_size=train_set.target_shape[0],
+                feature_shape=train_set.dshape,
+                out_size=train_set.tshape[0],
                 net=net
             )
 
@@ -315,11 +315,11 @@ def run_experiment(ex, build_fn, loss_fn,
 
             print(Colors.red('Starting training...\n'))
 
-            train_losses, val_losses, val_accs = nn.train(
+            train_losses, val_losses, _, val_accs = nn.train(
                 network=neural_net,
                 train_fn=train_fn, train_set=train_set,
                 test_fn=test_fn, validation_set=val_set,
-                threaded=10, updates=[lrs] if lrs else [],
+                threaded=10, callbacks=[lrs] if lrs else [],
                 batch_iterator=batch_iterator,
                 **training
             )

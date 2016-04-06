@@ -1,5 +1,5 @@
 import os
-from glob import glob
+import fnmatch
 from docopt import docopt
 
 import dmgr
@@ -25,20 +25,12 @@ Options:
 def main():
     args = docopt(USAGE)
 
-    ann_files = dmgr.files.match_files_single(
-        args['FILES'], '.chords.txt', '.chords')
+    ann_files = fnmatch.filter(args['FILES'], '*.chords')
 
     pred_files = dmgr.files.match_files(
-        ann_files,
-        args['FILES'],
-        '.chords',
-        '.chords.txt'
+        ann_files, '.chords',
+        args['FILES'], '.chords.txt'
     )
-
-    scores, total_length = test.compute_scores(ann_files, pred_files)
-
-    if args['-i']:
-        header = '# song, length, ' + ', '.join(scores[0][-1].keys())
 
     test.print_scores(test.compute_average_scores(ann_files, pred_files))
 

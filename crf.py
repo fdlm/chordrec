@@ -396,7 +396,7 @@ def train_and_test(net, train_set, val_set, test_set, gt_files,
         early_stop=training['early_stop'],
         early_stop_acc=training['early_stop_acc'],
         threaded=10,
-        updates=updates,
+        callbacks=updates,
         **kwargs
     )
 
@@ -535,8 +535,8 @@ def main(_config, _run, observations, datasource, feature_extractor, target,
                 fine_tune_optimiser, fine_tune_updates = None, []
 
             crf_net, ip_net, crf_pretrain_net = build_net(
-                feature_shape=train_set.feature_shape,
-                out_size=train_set.target_shape[0],
+                feature_shape=train_set.dshape,
+                out_size=train_set.tshape[0],
                 input_processor=input_processor,
                 crf=crf, fine_tuning=fine_tuning,
                 ip_optimiser=ip_optimiser, crf_optimiser=crf_optimiser,

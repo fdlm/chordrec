@@ -373,8 +373,8 @@ def main(_config, _run, observations, datasource, feature_extractor,
             logreg_optimiser, logreg_learn_rate = create_optimiser(optimiser)
 
             chroma_net, chords_net = build_net(
-                feature_shape=train_set.feature_shape,
-                out_size_chroma=train_set.target_shape[0],
+                feature_shape=train_set.dshape,
+                out_size_chroma=train_set.tshape[0],
                 out_size_chords=target_chords.num_classes,
                 chroma_extractor=chroma_extractor,
                 chroma_optimiser=chroma_optimiser,
@@ -408,7 +408,7 @@ def main(_config, _run, observations, datasource, feature_extractor,
                 early_stop=chroma_training['early_stop'],
                 early_stop_acc=chroma_training['early_stop_acc'],
                 threaded=10,
-                updates=updates,
+                callbacks=updates,
                 acc_func=nn.nn.elemwise_acc
             )
 
