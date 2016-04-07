@@ -193,7 +193,7 @@ class ParamSaver:
         self.ex.add_artifact(fn)
 
 
-def setup_experiment(name):
+def setup(name):
     ex = Experiment(name)
     ex.observers.append(PickleAndSymlinkObserver())
     data.add_sacred_config(ex)
@@ -202,9 +202,9 @@ def setup_experiment(name):
     return ex
 
 
-def run_experiment(ex, build_fn, loss_fn,
-                   datasource, net, feature_extractor, regularisation, target,
-                   optimiser, training, testing):
+def run(ex, build_fn, loss_fn,
+        datasource, net, feature_extractor, regularisation, target,
+        optimiser, training, testing):
 
     if feature_extractor is None:
         print(Colors.red('ERROR: Specify a feature extractor!'))
@@ -283,11 +283,16 @@ def run_experiment(ex, build_fn, loss_fn,
             if len(nnet_vars) == 3:
                 neural_net, input_var, target_var = nnet_vars
                 mask_var = None
-                batch_iterator = dmgr.iterators.iterate_batches
+
+                batch_iterator = getattr(
+                    dmgr.iterators, testing.get('iterator', 'iterate_batches'))
+
+                val_batch_iterator = dmgr.iterators.iterate_batches
                 use_mask = False
             elif len(nnet_vars) == 4:
                 neural_net, input_var, mask_var, target_var = nnet_vars
                 batch_iterator = dmgr.iterators.iterate_datasources
+                val_batch_iterator = dmgr.iterators.iterate_datasources
                 use_mask = True
             else:
                 raise ValueError('Invalid number of return values in build_fn')
@@ -321,6 +326,7 @@ def run_experiment(ex, build_fn, loss_fn,
                 test_fn=test_fn, validation_set=val_set,
                 threaded=10, callbacks=[lrs] if lrs else [],
                 batch_iterator=batch_iterator,
+                val_batch_iterator=val_batch_iterator,
                 **training
             )
 
@@ -337,7 +343,7 @@ def run_experiment(ex, build_fn, loss_fn,
             )
 
             test_gt_files = dmgr.files.match_files(
-                pred_files, gt_files, test.PREDICTION_EXT, data.GT_EXT
+                pred_files, test.PREDICTION_EXT, gt_files, data.GT_EXT
             )
 
             all_pred_files += pred_files

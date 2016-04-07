@@ -6,7 +6,7 @@ import shutil
 import scipy.stats
 from targets import ChordsMajMin
 from docopt import docopt
-from exp_utils import TempDir
+from experiment import TempDir
 from itertools import tee, izip
 
 USAGE = """

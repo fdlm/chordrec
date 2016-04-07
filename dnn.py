@@ -1,6 +1,6 @@
 import theano.tensor as tt
 import lasagne as lnn
-from exp_utils import setup_experiment, run_experiment
+import experiment
 
 
 def compute_loss(prediction, target):
@@ -49,8 +49,8 @@ def build_net(feature_shape, out_size, net):
 
 
 # Initialise Sacred experiment
-ex = setup_experiment('Deep Neural Network')
-run_exp = ex.capture(run_experiment)
+ex = experiment.setup('Deep Neural Network')
+run_exp = ex.capture(experiment.run)
 
 
 @ex.config

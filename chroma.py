@@ -16,8 +16,8 @@ import test
 import data
 import features
 import targets
-from exp_utils import (PickleAndSymlinkObserver, TempDir, create_optimiser,
-                       ParamSaver)
+from experiment import (PickleAndSymlinkObserver, TempDir, create_optimiser,
+                        ParamSaver)
 import dnn
 import convnet
 

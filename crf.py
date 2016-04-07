@@ -18,8 +18,8 @@ import features
 import targets
 import dnn
 import convnet
-from exp_utils import (PickleAndSymlinkObserver, TempDir, create_optimiser,
-                       ParamSaver)
+from experiment import (PickleAndSymlinkObserver, TempDir, create_optimiser,
+                        ParamSaver)
 
 # Initialise Sacred experiment
 ex = Experiment('Conditional Random Field')
