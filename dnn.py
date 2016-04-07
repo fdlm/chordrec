@@ -82,9 +82,10 @@ def config():
     )
 
     training = dict(
+        iterator='BatchIterator',
+        batch_size=512,
         num_epochs=500,
         early_stop=20,
-        batch_size=512,
         early_stop_acc=True,
     )
 

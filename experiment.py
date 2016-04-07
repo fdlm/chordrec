@@ -284,15 +284,38 @@ def run(ex, build_fn, loss_fn,
                 neural_net, input_var, target_var = nnet_vars
                 mask_var = None
 
-                batch_iterator = getattr(
-                    dmgr.iterators, testing.get('iterator', 'iterate_batches'))
+                it = training.get('iterator', 'BatchIterator')
 
-                val_batch_iterator = dmgr.iterators.iterate_batches
+                if it == 'BatchIterator':
+                    train_batches = dmgr.iterators.BatchIterator(
+                        train_set, training['batch_size'], shuffle=True,
+                        expand=True
+                    )
+                elif it == 'ClassBalancedIterator':
+                    train_batches = dmgr.iterators.ClassBalancedIterator(
+                        train_set, training['batch_size']
+                    )
+                else:
+                    raise ValueError('Unknown Batch Iterator: {}'.format(it))
+
+                validation_batches = dmgr.iterators.BatchIterator(
+                    val_set, training['batch_size'], shuffle=False,
+                    expand=False
+                )
+
                 use_mask = False
             elif len(nnet_vars) == 4:
                 neural_net, input_var, mask_var, target_var = nnet_vars
-                batch_iterator = dmgr.iterators.iterate_datasources
-                val_batch_iterator = dmgr.iterators.iterate_datasources
+
+                train_batches = dmgr.iterators.DatasourceIterator(
+                    train_set, training['batch_size'], shuffle=True,
+                    expand=True, max_seq_len=training['max_seq_len']
+                )
+
+                validation_batches = dmgr.iterators.DatasourceIterator(
+                    val_set, training['batch_size'], shuffle=False,
+                    expand=False
+                )
                 use_mask = True
             else:
                 raise ValueError('Invalid number of return values in build_fn')
@@ -322,12 +345,12 @@ def run(ex, build_fn, loss_fn,
 
             train_losses, val_losses, _, val_accs = nn.train(
                 network=neural_net,
-                train_fn=train_fn, train_set=train_set,
-                test_fn=test_fn, validation_set=val_set,
-                threaded=10, callbacks=[lrs] if lrs else [],
-                batch_iterator=batch_iterator,
-                val_batch_iterator=val_batch_iterator,
-                **training
+                train_fn=train_fn, train_batches=train_batches,
+                test_fn=test_fn, validation_batches=validation_batches,
+                threads=10, callbacks=[lrs] if lrs else [],
+                num_epochs=training['num_epochs'],
+                early_stop=training['early_stop'],
+                early_stop_acc=training['early_stop_acc']
             )
 
             print(Colors.red('\nStarting testing...\n'))

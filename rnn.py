@@ -125,11 +125,12 @@ def config():
     )
 
     training = dict(
+        iterator='BatchIterator',
+        batch_size=8,
+        max_seq_len=64,
         num_epochs=1000,
         early_stop=20,
         early_stop_acc=True,
-        batch_size=8,
-        max_seq_len=64
     )
 
     regularisation = dict(

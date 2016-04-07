@@ -407,7 +407,7 @@ def main(_config, _run, observations, datasource, feature_extractor,
                 validation_set=val_set,
                 early_stop=chroma_training['early_stop'],
                 early_stop_acc=chroma_training['early_stop_acc'],
-                threaded=10,
+                threads=10,
                 callbacks=updates,
                 acc_func=nn.nn.elemwise_acc
             )
@@ -449,7 +449,7 @@ def main(_config, _run, observations, datasource, feature_extractor,
                 batch_size=training['batch_size'], validation_set=val_set,
                 early_stop=training['early_stop'],
                 early_stop_acc=training['early_stop_acc'],
-                threaded=10,
+                threads=10,
             )
 
             print(Colors.red('\nStarting testing...\n'))

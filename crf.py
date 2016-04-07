@@ -395,7 +395,7 @@ def train_and_test(net, train_set, val_set, test_set, gt_files,
         batch_size=training['batch_size'], validation_set=val_set,
         early_stop=training['early_stop'],
         early_stop_acc=training['early_stop_acc'],
-        threaded=10,
+        threads=10,
         callbacks=updates,
         **kwargs
     )
