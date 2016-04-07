@@ -1,3 +1,4 @@
+from operator import eq
 import os
 import dmgr
 
@@ -13,16 +14,17 @@ def combine_files(*args):
     :param args: file dictionaries
     :return:     combined file dictionaries
     """
+    if len(args) < 1:
+        raise ValueError('Pass at least one argument!')
 
-    combined = {'train': {'feat': [],
-                          'targ': []},
-                'val': {'feat': [],
-                        'targ': []},
-                'test': {'feat': [],
-                         'targ': []}}
+    # make sure all elements contain the same number of splits
+    if not reduce(eq, map(len, args)):
+        raise ValueError('Arguments must contain the same number of splits!')
+
+    combined = [{'feat': [], 'targ': []} for _ in range(len(args[0]))]
 
     for fs in args:
-        for s in combined:
+        for s in range(len(combined)):
             for t in combined[s]:
                 combined[s][t] += fs[s][t]
 
