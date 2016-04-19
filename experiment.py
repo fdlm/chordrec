@@ -202,6 +202,22 @@ def setup(name):
     return ex
 
 
+def train_iterator(train_set, training):
+    it = training.get('iterator', 'BatchIterator')
+
+    if it == 'BatchIterator':
+        return dmgr.iterators.BatchIterator(
+            train_set, training['batch_size'], shuffle=True,
+            expand=True
+        )
+    elif it == 'ClassBalancedIterator':
+        return dmgr.iterators.ClassBalancedIterator(
+            train_set, training['batch_size']
+        )
+    else:
+        raise ValueError('Unknown Batch Iterator: {}'.format(it))
+
+
 def run(ex, build_fn, loss_fn,
         datasource, net, feature_extractor, regularisation, target,
         optimiser, training, testing):
@@ -284,19 +300,7 @@ def run(ex, build_fn, loss_fn,
                 neural_net, input_var, target_var = nnet_vars
                 mask_var = None
 
-                it = training.get('iterator', 'BatchIterator')
-
-                if it == 'BatchIterator':
-                    train_batches = dmgr.iterators.BatchIterator(
-                        train_set, training['batch_size'], shuffle=True,
-                        expand=True
-                    )
-                elif it == 'ClassBalancedIterator':
-                    train_batches = dmgr.iterators.ClassBalancedIterator(
-                        train_set, training['batch_size']
-                    )
-                else:
-                    raise ValueError('Unknown Batch Iterator: {}'.format(it))
+                train_batches = train_iterator(training, train_set)
 
                 validation_batches = dmgr.iterators.BatchIterator(
                     val_set, training['batch_size'], shuffle=False,

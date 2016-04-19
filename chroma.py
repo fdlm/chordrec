@@ -6,7 +6,6 @@ import theano.tensor as tt
 import lasagne as lnn
 import yaml
 import numpy as np
-from sacred import Experiment
 
 import nn
 import dmgr
@@ -16,18 +15,9 @@ import test
 import data
 import features
 import targets
-from experiment import (PickleAndSymlinkObserver, TempDir, create_optimiser,
-                        ParamSaver)
+import experiment
 import dnn
 import convnet
-
-
-# Initialise Sacred experiment
-ex = Experiment('Deep Neural Network / Chroma Target')
-ex.observers.append(PickleAndSymlinkObserver())
-data.add_sacred_config(ex)
-features.add_sacred_config(ex)
-targets.add_sacred_config(ex)
 
 
 def compute_chroma_loss(prediction, target):
@@ -38,19 +28,19 @@ def compute_chroma_loss(prediction, target):
 
 
 def build_net(feature_shape, out_size_chroma, out_size_chords,
-              chroma_extractor, chroma_optimiser, logreg_optimiser):
+              chroma_extractor):
 
     # input variables
-    feature_var = (tt.tensor3('feature_input', dtype='float32')
-                   if len(feature_shape) > 1 else
-                   tt.matrix('feature_input', dtype='float32'))
-    chroma_var = tt.matrix('chroma_output', dtype='float32')
-    chord_var = tt.matrix('chord_output', dtype='float32')
+    input_var = (tt.tensor3('feature_input', dtype='float32')
+                 if len(feature_shape) > 1 else
+                 tt.matrix('feature_input', dtype='float32'))
+    crm_target_var = tt.matrix('chroma_output', dtype='float32')
+    crd_target_var = tt.matrix('chord_output', dtype='float32')
 
     # stack more layers
     net = lnn.layers.InputLayer(name='input',
                                 shape=(None,) + feature_shape,
-                                input_var=feature_var)
+                                input_var=input_var)
 
     if chroma_extractor['type'] == 'conv':
         # reshape to 1 "color" channel
@@ -60,8 +50,7 @@ def build_net(feature_shape, out_size_chroma, out_size_chords,
         net = convnet.stack_layers(
             net=net,
             batch_norm=chroma_extractor['net']['batch_norm'],
-            convs=[chroma_extractor['net'][c]
-                   for c in ['conv1', 'conv2', 'conv3']]
+            *[chroma_extractor['net'][c] for c in ['conv1', 'conv2', 'conv3']]
         )
 
         net = dnn.stack_layers(net, **chroma_extractor['net']['dense'])
@@ -69,7 +58,7 @@ def build_net(feature_shape, out_size_chroma, out_size_chords,
     elif chroma_extractor['type'] == 'dense':
         dense = chroma_extractor['net']
         net = dnn.stack_layers(
-            inp=net,
+            net=net,
             batch_norm=dense['batch_norm'],
             nonlinearity=dense['nonlinearity'],
             num_layers=dense['num_layers'],
@@ -78,97 +67,42 @@ def build_net(feature_shape, out_size_chroma, out_size_chords,
         )
 
     # output layers
-    chrm = lnn.layers.DenseLayer(
+    crm = lnn.layers.DenseLayer(
         net, name='chroma_out', num_units=out_size_chroma,
         nonlinearity=lnn.nonlinearities.sigmoid)
 
     crds = lnn.layers.DenseLayer(
-        chrm, name='chords', num_units=out_size_chords,
+        crm, name='chords', num_units=out_size_chords,
         nonlinearity=lnn.nonlinearities.softmax)
 
     # tag chord classification parameters so we can distinguish them later
     for p in crds.get_params():
         crds.params[p].add('chord')
 
-    # ====================================== Theano functions for chroma target
-    # trains all the network parameters until chroma output
-
-    # create chroma train function
-    chrm_prediction = lnn.layers.get_output(chrm)
-    l2_chrm = lnn.regularization.regularize_network_params(
-        chrm, lnn.regularization.l2) * chroma_extractor['net']['l2']
-    chrm_loss = compute_chroma_loss(chrm_prediction, chroma_var) + l2_chrm
-    chrm_params = lnn.layers.get_all_params(chrm, trainable=True)
-    chrm_updates = chroma_optimiser(chrm_loss, chrm_params)
-    train_chroma = theano.function(
-        [feature_var, chroma_var], chrm_loss, updates=chrm_updates)
-
-    # create chroma test and process function. process just computes the
-    # prediction without computing the loss, and thus does not need
-    # target labels
-    chrm_test_prediction = lnn.layers.get_output(chrm, deterministic=True)
-    chrm_test_loss = compute_chroma_loss(
-        chrm_test_prediction, chroma_var) + l2_chrm
-    test_chroma = theano.function([feature_var, chroma_var],
-                                  [chrm_test_loss, chrm_test_prediction])
-    process_chroma = theano.function([feature_var], chrm_test_prediction)
-
-    # =============================== Theano functions for chord classification
-    # takes the chroma target as input and does linear regression on chord
-    # target (softmax layer). Only trains the parameters of the last
-    # layer (tagged as 'chord' in the code above)
-
-    # create chord classification train function
-    crds_prediction = lnn.layers.get_output(crds)
-    l2_crds = lnn.regularization.regularize_network_params(
-        crds, lnn.regularization.l2,
-        tags={'regularizable': True, 'chord': True}) * chroma_extractor['net']['l2']
-    crds_loss = dnn.compute_loss(crds_prediction, chord_var) + l2_crds
-    crds_params = lnn.layers.get_all_params(crds, trainable=True, chord=True)
-    crds_updates = logreg_optimiser(crds_loss, crds_params)
-    train_chords = theano.function(
-        [feature_var, chord_var], crds_loss, updates=crds_updates
-    )
-
-    # create chord test and process function. process just computes the
-    # prediction without computing the loss, and thus does not need
-    # target labels
-    crds_test_prediction = lnn.layers.get_output(crds, deterministic=True)
-    crds_test_loss = dnn.compute_loss(
-        crds_test_prediction, chord_var) + l2_chrm
-    test_chords = theano.function([feature_var, chord_var],
-                                  [crds_test_loss, crds_test_prediction])
-    process_chords = theano.function([feature_var], crds_test_prediction)
-
-    # Create the neural network classes and return them
-    chroma_net = nn.NeuralNetwork(
-        chrm, train_chroma, test_chroma, process_chroma
-    )
-
-    chords_net = nn.NeuralNetwork(
-        crds, train_chords, test_chords, process_chords
-    )
-
-    return chroma_net, chords_net
+    return crm, crds, input_var, crm_target_var, crd_target_var
 
 
-def compute_chroma(network, agg_dataset, dest_dir, extension='.chroma.npy'):
+def compute_chroma(process_fn, agg_dataset, dest_dir, extension='.chroma.npy'):
     if not os.path.exists(dest_dir):
         os.makedirs(dest_dir)
 
     chroma_files = []
 
     for ds_idx in range(agg_dataset.n_datasources):
-        ds = agg_dataset.get_datasource(ds_idx)
+        ds = agg_dataset.datasource(ds_idx)
 
         # skip targets
         data, _ = ds[:]
-        chromas = network.process(data)
+        chromas = process_fn(data)
         chroma_file = os.path.join(dest_dir, ds.name + extension)
         np.save(chroma_file, chromas)
         chroma_files.append(chroma_file)
 
     return chroma_files
+
+
+# Initialise Sacred experiment
+ex = experiment.setup('Chroma Extractor')
 
 
 @ex.config
@@ -215,7 +149,6 @@ def dense_net():
             dropout=0.5,
             nonlinearity='rectify',
             batch_norm=False,
-            l2=1e-4,
         ),
         optimiser=dict(
             name='adam',
@@ -225,10 +158,15 @@ def dense_net():
             schedule=None
         ),
         training=dict(
+            iterator='BatchIterator',
+            batch_size=512,
             num_epochs=500,
             early_stop=20,
-            batch_size=512,
             early_stop_acc=False,
+        ),
+        regularisation=dict(
+            l1=0.0,
+            l2=1e-4
         )
     )
 
@@ -262,8 +200,6 @@ def conv_net():
                 batch_norm=False
             ),
             global_avg_pool=None,
-            l2=1e-4,
-            l1=0
         ),
         optimiser=dict(
             name='adam',
@@ -273,10 +209,15 @@ def conv_net():
             schedule=None
         ),
         training=dict(
+            iterator='BatchIterator',
+            batch_size=2048,
             num_epochs=500,
             early_stop=20,
             early_stop_acc=False,
-            batch_size=2048,
+        ),
+        regularisation=dict(
+            l2=1e-7,
+            l1=0
         )
     )
 
@@ -289,8 +230,8 @@ def no_context():
 
 
 @ex.automain
-def main(_config, _run, observations, datasource, feature_extractor,
-         chroma_extractor, target, optimiser, training, testing):
+def main(datasource, feature_extractor, chroma_extractor, target, optimiser,
+         training, testing):
 
     if feature_extractor is None:
         print(Colors.red('ERROR: Specify a feature extractor!'))
@@ -321,7 +262,7 @@ def main(_config, _run, observations, datasource, feature_extractor,
 
     print(Colors.magenta('\nStarting experiment ' + ex.observers[0].hash()))
 
-    with TempDir() as exp_dir:
+    with experiment.TempDir() as exp_dir:
         for test_fold, val_fold in zip(datasource['test_fold'],
                                        datasource['val_fold']):
             print('')
@@ -367,48 +308,78 @@ def main(_config, _run, observations, datasource, feature_extractor,
             # build network
             print(Colors.red('Building network...\n'))
 
-            chroma_optimiser, chroma_learn_rate = create_optimiser(
+            chroma_net, chord_net, input_var, chroma_var, chord_var = (
+                build_net(
+                    feature_shape=train_set.dshape,
+                    out_size_chroma=train_set.tshape[0],
+                    out_size_chords=target_chords.num_classes,
+                    chroma_extractor=chroma_extractor,
+                )
+            )
+
+            chroma_optimiser, chroma_lrs = experiment.create_optimiser(
                 chroma_extractor['optimiser'])
 
-            logreg_optimiser, logreg_learn_rate = create_optimiser(optimiser)
+            chroma_train_fn = nn.compile_train_fn(
+                chroma_net, input_var, chroma_var,
+                loss_fn=compute_chroma_loss, opt_fn=chroma_optimiser,
+                **chroma_extractor['regularisation']
+            )
 
-            chroma_net, chords_net = build_net(
-                feature_shape=train_set.dshape,
-                out_size_chroma=train_set.tshape[0],
-                out_size_chords=target_chords.num_classes,
-                chroma_extractor=chroma_extractor,
-                chroma_optimiser=chroma_optimiser,
-                logreg_optimiser=logreg_optimiser,
+            chroma_test_fn = nn.compile_test_func(
+                chroma_net, input_var, chroma_var,
+                loss_fn=compute_chroma_loss,
+                **chroma_extractor['regularisation']
+            )
+
+            chroma_process_fn = nn.compile_process_func(
+                chroma_net, input_var
+            )
+
+            chord_optimiser, chord_lrs = experiment.create_optimiser(optimiser)
+
+            chord_train_fn = nn.compile_train_fn(
+                chord_net, input_var, chord_var,
+                loss_fn=dnn.compute_loss, opt_fn=chord_optimiser,
+                tags={'chord': True}, **chroma_extractor['regularisation']
+            )
+
+            chord_test_fn = nn.compile_test_func(
+                chord_net, input_var, chord_var,
+                loss_fn=dnn.compute_loss,
+                tags={'chord': True}, **chroma_extractor['regularisation']
+            )
+
+            chord_process_fn = nn.compile_process_func(
+                chord_net, input_var
             )
 
             print(Colors.blue('Chroma Network:'))
-            print(chroma_net)
+            print(nn.to_string(chroma_net))
             print('')
 
             print(Colors.blue('Chords Network:'))
-            print(chords_net)
+            print(nn.to_string(chord_net))
             print('')
 
             print(Colors.red('Starting training chroma network...\n'))
 
-            updates = []
-            if optimiser['schedule'] is not None:
-                updates.append(
-                    nn.LearnRateSchedule(
-                        learning_rate=chroma_learn_rate,
-                        **chroma_extractor['optimiser']['schedule'])
-                )
-
             chroma_training = chroma_extractor['training']
+            train_batches = experiment.train_iterator(
+                train_set, chroma_training)
+            validation_batches = dmgr.iterators.BatchIterator(
+                val_set, chroma_training['batch_size'], shuffle=False,
+                expand=False
+            )
 
-            best_params, chroma_train_losses, chroma_val_losses = nn.train(
-                chroma_net, train_set, n_epochs=chroma_training['num_epochs'],
-                batch_size=chroma_training['batch_size'],
-                validation_set=val_set,
+            crm_train_losses, crm_val_losses, _, crm_val_accs = nn.train(
+                network=chroma_net,
+                train_fn=chroma_train_fn, train_batches=train_batches,
+                test_fn=chroma_test_fn, validation_batches=validation_batches,
+                threads=10, callbacks=[chroma_lrs] if chroma_lrs else [],
+                num_epochs=chroma_training['num_epochs'],
                 early_stop=chroma_training['early_stop'],
                 early_stop_acc=chroma_training['early_stop_acc'],
-                threads=10,
-                callbacks=updates,
                 acc_func=nn.nn.elemwise_acc
             )
 
@@ -444,32 +415,42 @@ def main(_config, _run, observations, datasource, feature_extractor,
 
             print(Colors.red('Starting training chord network...\n'))
 
-            best_params, train_losses, val_losses = nn.train(
-                chords_net, train_set, n_epochs=training['num_epochs'],
-                batch_size=training['batch_size'], validation_set=val_set,
+            train_batches = experiment.train_iterator(
+                train_set, training)
+            validation_batches = dmgr.iterators.BatchIterator(
+                val_set, training['batch_size'], shuffle=False,
+                expand=False
+            )
+
+            crd_train_losses, crd_val_losses, _, crd_val_accs = nn.train(
+                network=chord_net,
+                train_fn=chord_train_fn, train_batches=train_batches,
+                test_fn=chord_test_fn, validation_batches=validation_batches,
+                threads=10, callbacks=[chord_lrs] if chord_lrs else [],
+                num_epochs=training['num_epochs'],
                 early_stop=training['early_stop'],
                 early_stop_acc=training['early_stop_acc'],
-                threads=10,
             )
 
             print(Colors.red('\nStarting testing...\n'))
 
             param_file = os.path.join(
                 exp_dir, 'params_fold_{}.pkl'.format(test_fold))
-            chords_net.save_parameters(param_file)
+            nn.save_params(chord_net, param_file)
             ex.add_artifact(param_file)
 
             pred_files = test.compute_labeling(
-                chords_net, target_chords, test_set, dest_dir=exp_dir,
+                chord_process_fn, target_chords, test_set, dest_dir=exp_dir,
                 use_mask=False
             )
 
             # compute chroma vectors for the test set
-            for cf in compute_chroma(chroma_net, test_set, dest_dir=exp_dir):
+            for cf in compute_chroma(chroma_process_fn, test_set,
+                                     dest_dir=exp_dir):
                 ex.add_artifact(cf)
 
             test_gt_files = dmgr.files.match_files(
-                pred_files, gt_files, test.PREDICTION_EXT, data.GT_EXT
+                pred_files, test.PREDICTION_EXT, gt_files, data.GT_EXT
             )
 
             all_pred_files += pred_files
@@ -477,16 +458,14 @@ def main(_config, _run, observations, datasource, feature_extractor,
 
             print(Colors.blue('Results:'))
             scores = test.compute_average_scores(test_gt_files, pred_files)
-            # convert to float so yaml output looks nice
-            for k in scores:
-                scores[k] = float(scores[k])
             test.print_scores(scores)
-
             result_file = os.path.join(
                 exp_dir, 'results_fold_{}.yaml'.format(test_fold))
             yaml.dump(dict(scores=scores,
-                           train_losses=map(float, train_losses),
-                           val_losses=map(float, val_losses)),
+                           chord_train_losses=map(float, crd_train_losses),
+                           chord_val_losses=map(float, crd_val_losses),
+                           chroma_train_losses=map(float, crm_train_losses),
+                           chroma_val_losses=map(float, crm_val_losses)),
                       open(result_file, 'w'))
             ex.add_artifact(result_file)
 
@@ -500,9 +479,6 @@ def main(_config, _run, observations, datasource, feature_extractor,
         if len(datasource['test_fold']) > 1:
             print(Colors.yellow('\nAggregated Results:\n'))
             scores = test.compute_average_scores(all_gt_files, all_pred_files)
-            # convert to float so yaml output looks nice
-            for k in scores:
-                scores[k] = float(scores[k])
             test.print_scores(scores)
             result_file = os.path.join(exp_dir, 'results.yaml')
             yaml.dump(dict(scores=scores), open(result_file, 'w'))
