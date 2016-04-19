@@ -33,7 +33,7 @@ def compute_labeling(process_fn, target, agg_dataset, dest_dir, use_mask,
     pred_files = []
 
     for ds_idx in range(agg_dataset.n_datasources):
-        ds = agg_dataset.get_datasource(ds_idx)
+        ds = agg_dataset.datasource(ds_idx)
 
         # skip targets
         data, _ = ds[:]

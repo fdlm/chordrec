@@ -33,5 +33,5 @@ for nid, f in enumerate(param_files):
         )
         for i in range(0, len(p) - 2, 2)
     ])
-    nn.dump(args['<dst_name>'].format(nid))
+    nn.dump(args['<dst_name>'].format(nid + 1))
 

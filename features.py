@@ -69,7 +69,7 @@ class LogFiltSpec:
         return 'lfs_fps={}_num-bands={}_fmin={}_fmax={}_frame_sizes=[{}]'.format(
                 self.fps, self.num_bands, self.fmin, self.fmax,
                 '-'.join(map(str, self.frame_sizes))
-        )
+        ) + ('_uf' if self.unique_filters else '')
 
     def __call__(self, audio_file):
         # do not resample because ffmpeg/avconv creates terrible sampling

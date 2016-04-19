@@ -18,7 +18,7 @@ def combine_files(*args):
         raise ValueError('Pass at least one argument!')
 
     # make sure all elements contain the same number of splits
-    if not reduce(eq, map(len, args)):
+    if len(set(len(a) for a in args)) > 1:
         raise ValueError('Arguments must contain the same number of splits!')
 
     combined = [{'feat': [], 'targ': []} for _ in range(len(args[0]))]
