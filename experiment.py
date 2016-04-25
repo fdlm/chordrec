@@ -19,6 +19,7 @@ from nn.utils import Colors
 import data
 import features
 import targets
+import augmenters
 import test
 
 
@@ -220,7 +221,7 @@ def train_iterator(train_set, training):
 
 def run(ex, build_fn, loss_fn,
         datasource, net, feature_extractor, regularisation, target,
-        optimiser, training, testing):
+        optimiser, training, testing, augmentation):
 
     if feature_extractor is None:
         print(Colors.red('ERROR: Specify a feature extractor!'))
@@ -300,7 +301,7 @@ def run(ex, build_fn, loss_fn,
                 neural_net, input_var, target_var = nnet_vars
                 mask_var = None
 
-                train_batches = train_iterator(training, train_set)
+                train_batches = train_iterator(train_set, training)
 
                 validation_batches = dmgr.iterators.BatchIterator(
                     val_set, training['batch_size'], shuffle=False,
@@ -323,6 +324,11 @@ def run(ex, build_fn, loss_fn,
                 use_mask = True
             else:
                 raise ValueError('Invalid number of return values in build_fn')
+
+            if augmentation is not None:
+                train_batches = dmgr.iterators.AugmentedIterator(
+                    train_batches, *augmenters.create_augmenters(augmentation)
+                )
 
             opt, lrs = create_optimiser(optimiser)
 

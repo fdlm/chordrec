@@ -1,3 +1,4 @@
+import numpy as np
 import theano.tensor as tt
 import lasagne as lnn
 import dnn
@@ -20,6 +21,8 @@ def stack_layers(net, batch_norm, conv1, conv2, conv3):
             net = lnn.layers.Conv2DLayer(
                 net, num_filters=conv['num_filters'],
                 filter_size=conv['filter_size'],
+                W=lnn.init.Orthogonal(gain=np.sqrt(2 / (1 + .1 ** 2))),
+                pad=conv['pad'],
                 nonlinearity=lnn.nonlinearities.rectify,
                 name='Conv_{}_{}'.format(i, k))
             if batch_norm:
@@ -42,18 +45,18 @@ def stack_gap(net, out_size, num_filters, filter_size, dropout, batch_norm):
 
     net = lnn.layers.DropoutLayer(net, p=dropout)
 
-    net = lnn.layers.Conv2DLayer(
-        net, num_filters=num_filters, filter_size=1,
-        pad=0, nonlinearity=lnn.nonlinearities.rectify,
-        name='Gap_Filters_Single')
-    if batch_norm:
-        net = lnn.layers.batch_norm(net)
-    net = lnn.layers.DropoutLayer(net, p=dropout)
+    # net = lnn.layers.Conv2DLayer(
+    #     net, num_filters=num_filters, filter_size=1,
+    #     pad=0, nonlinearity=lnn.nonlinearities.rectify,
+    #     name='Gap_Filters_Single')
+    # if batch_norm:
+    #     net = lnn.layers.batch_norm(net)
+    # net = lnn.layers.DropoutLayer(net, p=dropout)
 
     # output classification layer
     net = lnn.layers.Conv2DLayer(
         net, num_filters=out_size, filter_size=1,
-        nonlinearity=lnn.nonlinearities.rectify, name='Output_Conv')
+        nonlinearity=lnn.nonlinearities.linear, name='Output_Conv')
     if batch_norm:
         net = lnn.layers.batch_norm(net)
 
@@ -61,6 +64,7 @@ def stack_gap(net, out_size, num_filters, filter_size, dropout, batch_norm):
         net, pool_size=net.output_shape[-2:], ignore_border=False,
         mode='average_exc_pad', name='GlobalAveragePool')
     net = lnn.layers.FlattenLayer(net, name='Flatten')
+
     net = lnn.layers.NonlinearityLayer(
         net, nonlinearity=lnn.nonlinearities.softmax, name='output')
 
@@ -126,6 +130,7 @@ def config():
                 filter_size=(3, 3),
                 pool_size=(1, 2),
                 dropout=0.5,
+                pad='valid',
             ),
             conv2=dict(
                 num_layers=1,
@@ -133,6 +138,7 @@ def config():
                 filter_size=(3, 3),
                 pool_size=(1, 2),
                 dropout=0.5,
+                pad='valid',
             ),
             conv3={},
         ),
@@ -162,7 +168,7 @@ def config():
     )
 
     regularisation = dict(
-        l2=1e-4,
+        l2=1e-7,
         l1=0
     )
 
@@ -170,16 +176,21 @@ def config():
         test_on_val=False
     )
 
+    augmentation=None
+
 
 @ex.named_config
-def third_conv_layer():
-    net = dict(
-        conv3=dict(
-            num_layers=1,
-            num_filters=64,
-            filter_size=(3, 3),
-            pool_size=(1, 2),
-            dropout=0.5,
+def augmentation():
+    augmentation = dict(
+        SemitoneShift=dict(
+            p=1.0,
+            max_shift=4,
+            bins_per_semitone=2
+        ),
+        Detuning=dict(
+            p=1.0,
+            max_shift=0.4,
+            bins_per_semitone=2
         )
     )
 
@@ -189,8 +200,8 @@ def gap_classifier():
     net = dict(
         dense=None,
         global_avg_pool=dict(
-            num_filters=512,
-            filter_size=(3, 3),
+            num_filters=64,
+            filter_size=(9, 12),
             dropout=0.5,
             batch_norm=True
         )
