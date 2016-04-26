@@ -2,6 +2,8 @@ from __future__ import print_function
 import sys
 import os
 import numpy as np
+
+from dmgr.iterators import iterate_batches
 from nn.utils import Colors
 
 
@@ -10,7 +12,7 @@ PREDICTION_EXT = '.chords.txt'
 
 # TODO: What does add_time_dim do and how can I remove it?
 def compute_labeling(process_fn, target, agg_dataset, dest_dir, use_mask,
-                     add_time_dim=False, extension='.chords.txt'):
+                     batch_size=None, add_time_dim=False, extension='.chords.txt'):
     """
     Computes and saves the labels for each datasource in an aggragated
     datasource
@@ -18,7 +20,8 @@ def compute_labeling(process_fn, target, agg_dataset, dest_dir, use_mask,
     :param target:      target computer
     :param agg_dataset: aggragated datasource.
     :param dest_dir:    where to store predicted chord labels
-    :param use_mask:         if the network is an rnn
+    :param use_mask:    if the network is an rnn
+    :param batch_size:  Batch size if each datasource is to be processed batch-wise
     :param extension:   file extension of the resulting files
     :return:            list of files containing the predictions
     """
@@ -35,21 +38,23 @@ def compute_labeling(process_fn, target, agg_dataset, dest_dir, use_mask,
     for ds_idx in range(agg_dataset.n_datasources):
         ds = agg_dataset.datasource(ds_idx)
 
-        # skip targets
-        data, _ = ds[:]
+        pred = []
+        for data, _ in iterate_batches(ds, batch_size or ds.n_data,
+                                       randomise=False, expand=False):
+            if add_time_dim:
+                data = data[:, np.newaxis, ...]
 
-        if add_time_dim:
-            data = data[:, np.newaxis, ...]
+            if use_mask:
+                data = data[np.newaxis, :]
+                mask = np.ones(data.shape[:2], dtype=np.float32)
 
-        if use_mask:
-            data = data[np.newaxis, :]
-            mask = np.ones(data.shape[:2], dtype=np.float32)
+                p = process_fn(data, mask)[0]
+            else:
+                p = process_fn(data)
 
-            pred = process_fn(data, mask)[0]
-        else:
-            pred = process_fn(data)
+            pred.append(p.argmax(axis=1))
 
-        pred = pred.argmax(axis=1)
+        pred = np.concatenate(pred)
 
         pred_file = os.path.join(dest_dir, ds.name + extension)
         target.write_chord_predictions(pred_file, pred)

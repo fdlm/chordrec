@@ -173,7 +173,8 @@ def config():
     )
 
     testing = dict(
-        test_on_val=False
+        test_on_val=False,
+        batch_size=training['batch_size']
     )
 
     augmentation=None

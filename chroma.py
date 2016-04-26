@@ -368,7 +368,7 @@ def main(datasource, feature_extractor, chroma_extractor, target, optimiser,
             train_batches = experiment.train_iterator(
                 train_set, chroma_training)
             validation_batches = dmgr.iterators.BatchIterator(
-                val_set, chroma_training['batch_size'], shuffle=False,
+                val_set, chroma_training['batch_size'], randomise=False,
                 expand=False
             )
 
@@ -418,7 +418,7 @@ def main(datasource, feature_extractor, chroma_extractor, target, optimiser,
             train_batches = experiment.train_iterator(
                 train_set, training)
             validation_batches = dmgr.iterators.BatchIterator(
-                val_set, training['batch_size'], shuffle=False,
+                val_set, training['batch_size'], randomise=False,
                 expand=False
             )
 

@@ -95,9 +95,27 @@ def config():
     )
 
     testing = dict(
-        test_on_val=False
+        test_on_val=False,
+        batch_size=None
     )
 
+    augmentation=None
+
+
+@ex.named_config
+def augmentation():
+    augmentation = dict(
+        SemitoneShift=dict(
+            p=.2,
+            max_shift=4,
+            bins_per_semitone=2
+        ),
+        Detuning=dict(
+            p=.2,
+            max_shift=0.4,
+            bins_per_semitone=2
+        )
+    )
 
 @ex.named_config
 def learn_rate_schedule():

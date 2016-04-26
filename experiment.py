@@ -208,11 +208,11 @@ def train_iterator(train_set, training):
 
     if it == 'BatchIterator':
         return dmgr.iterators.BatchIterator(
-            train_set, training['batch_size'], shuffle=True,
+            train_set, training['batch_size'], randomise=True,
             expand=True
         )
     elif it == 'ClassBalancedIterator':
-        return dmgr.iterators.ClassBalancedIterator(
+        return dmgr.iterators.UniformClassIterator(
             train_set, training['batch_size']
         )
     else:
@@ -304,7 +304,7 @@ def run(ex, build_fn, loss_fn,
                 train_batches = train_iterator(train_set, training)
 
                 validation_batches = dmgr.iterators.BatchIterator(
-                    val_set, training['batch_size'], shuffle=False,
+                    val_set, training['batch_size'], randomise=False,
                     expand=False
                 )
 
@@ -312,13 +312,13 @@ def run(ex, build_fn, loss_fn,
             elif len(nnet_vars) == 4:
                 neural_net, input_var, mask_var, target_var = nnet_vars
 
-                train_batches = dmgr.iterators.DatasourceIterator(
-                    train_set, training['batch_size'], shuffle=True,
+                train_batches = dmgr.iterators.SequenceIterator(
+                    train_set, training['batch_size'], randomise=True,
                     expand=True, max_seq_len=training['max_seq_len']
                 )
 
-                validation_batches = dmgr.iterators.DatasourceIterator(
-                    val_set, training['batch_size'], shuffle=False,
+                validation_batches = dmgr.iterators.SequenceIterator(
+                    val_set, training['batch_size'], randomise=False,
                     expand=False
                 )
                 use_mask = True
@@ -372,7 +372,7 @@ def run(ex, build_fn, loss_fn,
 
             pred_files = test.compute_labeling(
                 process_fn, target_computer, test_set, dest_dir=exp_dir,
-                use_mask=use_mask
+                use_mask=use_mask, batch_size=testing['batch_size']
             )
 
             test_gt_files = dmgr.files.match_files(

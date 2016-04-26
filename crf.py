@@ -578,7 +578,7 @@ def main(_config, _run, observations, datasource, feature_extractor, target,
                     test_fold, crf['training'], crf_updates,
                     target_computer, os.path.join(exp_dir, 'crf_pretrain'),
                     'CRF pre-train', rnn=True,
-                    batch_iterator=dmgr.iterators.iterate_datasources,
+                    batch_iterator=dmgr.iterators.iterate_sequences,
                 )
 
                 all_pred_files['crf_pretrain'] += crf_pred
@@ -592,7 +592,7 @@ def main(_config, _run, observations, datasource, feature_extractor, target,
                     test_fold, fine_tuning['training'], fine_tune_updates,
                     target_computer, os.path.join(exp_dir, 'fine_tuned'),
                     'fine-tuned', rnn=True,
-                    batch_iterator=dmgr.iterators.iterate_datasources,
+                    batch_iterator=dmgr.iterators.iterate_sequences,
                 )
 
                 all_pred_files['fine_tune'] += ft_pred
