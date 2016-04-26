@@ -29,6 +29,18 @@ features.add_sacred_config(ex)
 targets.add_sacred_config(ex)
 
 
+class AddTimeDim(object):
+    """
+    Data "augmenter" which adds a time dimension to data and targets.
+    Use this whenever add_time_dim=True was used.
+    """
+    def __call__(self, batch_iterator):
+        for d, t in batch_iterator:
+            new_dshape = (d.shape[0], 1) + d.shape[1:]
+            new_tshape = (t.shape[0], 1) + t.shape[1:]
+            yield d.reshape(new_dshape), t.reshape(new_tshape)
+
+
 def compute_loss(network, target, mask):
     loss = spg.objectives.neg_log_likelihood(network, target, mask)
     loss /= mask.sum(axis=1)  # normalise to sequence length
@@ -409,6 +421,7 @@ def train_and_test(net, train_set, val_set, test_set, gt_files,
         dest_dir, 'params_fold_{}.pkl'.format(test_fold))
     net.save_parameters(param_file)
 
+    # TODO: replace add_time_dim with the augmentation class provided above
     pred_files = test.compute_labeling(
         net, target_computer, test_set, dest_dir=dest_dir,
         use_mask=rnn, add_time_dim=kwargs.get('add_time_dim', False)
