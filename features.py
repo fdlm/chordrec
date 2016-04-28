@@ -284,9 +284,9 @@ def add_sacred_config(ex):
                 fps=10,
                 frame_sizes=[8192],
                 num_bands=24,
-                fmin=30,
-                fmax=5500,
-                unique_filters=False,
+                fmin=65,
+                fmax=2100,
+                unique_filters=True,
             )
         )
     )

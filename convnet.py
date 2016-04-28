@@ -35,7 +35,8 @@ def stack_layers(net, batch_norm, conv1, conv2, conv3):
     return net
 
 
-def stack_gap(net, out_size, num_filters, filter_size, dropout, batch_norm):
+def stack_gap(net, out_size, num_filters, filter_size, dropout, batch_norm,
+              output_nonlinearity=lnn.nonlinearities.softmax):
     net = lnn.layers.Conv2DLayer(
         net, num_filters=num_filters, filter_size=filter_size,
         pad=0, nonlinearity=lnn.nonlinearities.rectify,
@@ -66,7 +67,7 @@ def stack_gap(net, out_size, num_filters, filter_size, dropout, batch_norm):
     net = lnn.layers.FlattenLayer(net, name='Flatten')
 
     net = lnn.layers.NonlinearityLayer(
-        net, nonlinearity=lnn.nonlinearities.softmax, name='output')
+        net, nonlinearity=output_nonlinearity, name='output')
 
     return net
 
@@ -99,7 +100,7 @@ def build_net(feature_shape, out_size, net):
     elif net['global_avg_pool']:
         network = stack_gap(network, out_size, **net['global_avg_pool'])
     else:
-        raise RuntimeError('Need to specify output architecture!')
+        raise ValueError('Need to specify output architecture!')
 
     return network, input_var, target_var
 
@@ -114,7 +115,7 @@ def config():
     observations = 'results'
 
     datasource = dict(
-            context_size=7,
+        context_size=7,
     )
 
     feature_extractor = None
@@ -123,17 +124,17 @@ def config():
 
     net = dict(
         conv=dict(
-            batch_norm=False,
+            batch_norm=True,
             conv1=dict(
-                num_layers=2,
+                num_layers=4,
                 num_filters=32,
                 filter_size=(3, 3),
                 pool_size=(1, 2),
                 dropout=0.5,
-                pad='valid',
+                pad='same',
             ),
             conv2=dict(
-                num_layers=1,
+                num_layers=2,
                 num_filters=64,
                 filter_size=(3, 3),
                 pool_size=(1, 2),
@@ -143,13 +144,7 @@ def config():
             conv3={},
         ),
         global_avg_pool=None,
-        dense=dict(
-            num_layers=1,
-            num_units=512,
-            dropout=0.5,
-            nonlinearity='rectify',
-            batch_norm=False
-        ),
+        dense=None
     )
 
     optimiser = dict(
@@ -162,7 +157,7 @@ def config():
 
     training = dict(
         num_epochs=500,
-        early_stop=20,
+        early_stop=5,
         early_stop_acc=True,
         batch_size=512,
     )
@@ -177,21 +172,19 @@ def config():
         batch_size=training['batch_size']
     )
 
-    augmentation=None
+    augmentation = None
 
 
 @ex.named_config
-def augmentation():
-    augmentation = dict(
-        SemitoneShift=dict(
-            p=1.0,
-            max_shift=4,
-            bins_per_semitone=2
-        ),
-        Detuning=dict(
-            p=1.0,
-            max_shift=0.4,
-            bins_per_semitone=2
+def dense_classifier():
+    net = dict(
+        global_avg_pool=None,
+        dense=dict(
+            num_layers=1,
+            num_units=512,
+            dropout=0.5,
+            nonlinearity='rectify',
+            batch_norm=False
         )
     )
 
@@ -201,7 +194,7 @@ def gap_classifier():
     net = dict(
         dense=None,
         global_avg_pool=dict(
-            num_filters=64,
+            num_filters=128,
             filter_size=(9, 12),
             dropout=0.5,
             batch_norm=True
@@ -222,3 +215,4 @@ def learn_rate_schedule():
 @ex.automain
 def main():
     run_exp(ex, build_fn=build_net, loss_fn=compute_loss)
+

@@ -1,7 +1,6 @@
 from __future__ import print_function
 import os
 import collections
-import theano
 import theano.tensor as tt
 import lasagne as lnn
 import yaml
@@ -15,6 +14,7 @@ import test
 import data
 import features
 import targets
+import augmenters
 import experiment
 import dnn
 import convnet
@@ -38,38 +38,44 @@ def build_net(feature_shape, out_size_chroma, out_size_chords,
     crd_target_var = tt.matrix('chord_output', dtype='float32')
 
     # stack more layers
-    net = lnn.layers.InputLayer(name='input',
-                                shape=(None,) + feature_shape,
-                                input_var=input_var)
+    network = lnn.layers.InputLayer(
+        name='input', shape=(None,) + feature_shape, input_var=input_var)
 
+    net = chroma_extractor['net']
     if chroma_extractor['type'] == 'conv':
         # reshape to 1 "color" channel
-        net = lnn.layers.reshape(net, shape=(-1, 1) + feature_shape,
-                                 name='reshape')
+        network = lnn.layers.reshape(
+            network, shape=(-1, 1) + feature_shape, name='reshape')
 
-        net = convnet.stack_layers(
-            net=net,
-            batch_norm=chroma_extractor['net']['batch_norm'],
-            *[chroma_extractor['net'][c] for c in ['conv1', 'conv2', 'conv3']]
-        )
-
-        net = dnn.stack_layers(net, **chroma_extractor['net']['dense'])
+        network = convnet.stack_layers(network, **net['conv'])
+        if net['dense']:
+            network = dnn.stack_layers(network, **net['dense'])
+            crm = lnn.layers.DenseLayer(
+                network, name='chroma_out', num_units=out_size_chroma,
+                nonlinearity=lnn.nonlinearities.sigmoid)
+        elif net['global_avg_pool']:
+            crm = convnet.stack_gap(
+                network, out_size_chroma,
+                output_nonlinearity=lnn.nonlinearities.sigmoid,
+                **net['global_avg_pool']
+            )
+            crm.name = 'chroma_out'
+        else:
+            raise ValueError('Need to specify output architecture!')
 
     elif chroma_extractor['type'] == 'dense':
         dense = chroma_extractor['net']
-        net = dnn.stack_layers(
-            net=net,
+        network = dnn.stack_layers(
+            net=network,
             batch_norm=dense['batch_norm'],
             nonlinearity=dense['nonlinearity'],
             num_layers=dense['num_layers'],
             num_units=dense['num_units'],
             dropout=dense['dropout']
         )
-
-    # output layers
-    crm = lnn.layers.DenseLayer(
-        net, name='chroma_out', num_units=out_size_chroma,
-        nonlinearity=lnn.nonlinearities.sigmoid)
+        crm = lnn.layers.DenseLayer(
+            network, name='chroma_out', num_units=out_size_chroma,
+            nonlinearity=lnn.nonlinearities.sigmoid)
 
     crds = lnn.layers.DenseLayer(
         crm, name='chords', num_units=out_size_chords,
@@ -82,7 +88,8 @@ def build_net(feature_shape, out_size_chroma, out_size_chords,
     return crm, crds, input_var, crm_target_var, crd_target_var
 
 
-def compute_chroma(process_fn, agg_dataset, dest_dir, extension='.chroma.npy'):
+def compute_chroma(process_fn, agg_dataset, dest_dir, batch_size,
+                   extension='.chroma.npy'):
     if not os.path.exists(dest_dir):
         os.makedirs(dest_dir)
 
@@ -91,9 +98,14 @@ def compute_chroma(process_fn, agg_dataset, dest_dir, extension='.chroma.npy'):
     for ds_idx in range(agg_dataset.n_datasources):
         ds = agg_dataset.datasource(ds_idx)
 
-        # skip targets
-        data, _ = ds[:]
-        chromas = process_fn(data)
+        chromas = []
+
+        for data, _ in dmgr.iterators.iterate_batches(ds, batch_size,
+                                                      randomise=False,
+                                                      expand=False):
+            chromas.append(process_fn(data))
+
+        chromas = np.concatenate(chromas)
         chroma_file = os.path.join(dest_dir, ds.name + extension)
         np.save(chroma_file, chromas)
         chroma_files.append(chroma_file)
@@ -135,8 +147,11 @@ def config():
     )
 
     testing = dict(
-        test_on_val=False
+        test_on_val=False,
+        batch_size=training['batch_size']
     )
+
+    augmentation = None
 
 
 @ex.named_config
@@ -176,30 +191,33 @@ def conv_net():
     chroma_extractor = dict(
         type='conv',
         net=dict(
-            batch_norm=True,
-            conv1=dict(
-                num_layers=2,
-                num_filters=8,
-                filter_size=(3, 3),
-                pool_size=(1, 2),
-                dropout=0.5,
+            conv=dict(
+                batch_norm=True,
+                conv1=dict(
+                    num_layers=4,
+                    num_filters=32,
+                    filter_size=(3, 3),
+                    pool_size=(1, 2),
+                    dropout=0.5,
+                    pad='same'
+                ),
+                conv2=dict(
+                    num_layers=2,
+                    num_filters=64,
+                    filter_size=(3, 3),
+                    pool_size=(1, 2),
+                    dropout=0.5,
+                    pad='valid'
+                ),
+                conv3={},
             ),
-            conv2=dict(
-                num_layers=1,
-                num_filters=16,
-                filter_size=(3, 3),
-                pool_size=(1, 2),
+            dense=None,
+            global_avg_pool=dict(
+                num_filters=128,
+                filter_size=(9, 12),
                 dropout=0.5,
-            ),
-            conv3={},
-            dense=dict(
-                num_layers=1,
-                num_units=256,
-                dropout=0.5,
-                nonlinearity='rectify',
-                batch_norm=False
-            ),
-            global_avg_pool=None,
+                batch_norm=True
+            )
         ),
         optimiser=dict(
             name='adam',
@@ -210,14 +228,30 @@ def conv_net():
         ),
         training=dict(
             iterator='BatchIterator',
-            batch_size=2048,
+            batch_size=512,
             num_epochs=500,
-            early_stop=20,
+            early_stop=5,
             early_stop_acc=False,
         ),
         regularisation=dict(
             l2=1e-7,
             l1=0
+        )
+    )
+
+
+@ex.named_config
+def dense_classifier():
+    chroma_extractor = dict(
+        net=dict(
+            global_avg_pool=None,
+            dense=dict(
+                num_layers=1,
+                num_units=512,
+                dropout=0.5,
+                nonlinearity='rectify',
+                batch_norm=False
+            )
         )
     )
 
@@ -231,7 +265,7 @@ def no_context():
 
 @ex.automain
 def main(datasource, feature_extractor, chroma_extractor, target, optimiser,
-         training, testing):
+         training, testing, augmentation):
 
     if feature_extractor is None:
         print(Colors.red('ERROR: Specify a feature extractor!'))
@@ -240,6 +274,10 @@ def main(datasource, feature_extractor, chroma_extractor, target, optimiser,
     if chroma_extractor is None:
         print(Colors.red('ERROR: Specify a chroma extractor!'))
         return 1
+
+    # TODO: is there a nicer solution?
+    if augmentation is not None:
+        augmentation['SemitoneShift']['target_type'] = 'chroma'
 
     if not isinstance(datasource['test_fold'], collections.Iterable):
         datasource['test_fold'] = [datasource['test_fold']]
@@ -372,11 +410,16 @@ def main(datasource, feature_extractor, chroma_extractor, target, optimiser,
                 expand=False
             )
 
+            if augmentation is not None:
+                train_batches = dmgr.iterators.AugmentedIterator(
+                    train_batches, *augmenters.create_augmenters(augmentation)
+                )
+
             crm_train_losses, crm_val_losses, _, crm_val_accs = nn.train(
                 network=chroma_net,
                 train_fn=chroma_train_fn, train_batches=train_batches,
                 test_fn=chroma_test_fn, validation_batches=validation_batches,
-                threads=10, callbacks=[chroma_lrs] if chroma_lrs else [],
+                threads=None, callbacks=[chroma_lrs] if chroma_lrs else [],
                 num_epochs=chroma_training['num_epochs'],
                 early_stop=chroma_training['early_stop'],
                 early_stop_acc=chroma_training['early_stop_acc'],
@@ -422,6 +465,11 @@ def main(datasource, feature_extractor, chroma_extractor, target, optimiser,
                 expand=False
             )
 
+            if augmentation is not None:
+                train_batches = dmgr.iterators.AugmentedIterator(
+                    train_batches, *augmenters.create_augmenters(augmentation)
+                )
+
             crd_train_losses, crd_val_losses, _, crd_val_accs = nn.train(
                 network=chord_net,
                 train_fn=chord_train_fn, train_batches=train_batches,
@@ -441,11 +489,12 @@ def main(datasource, feature_extractor, chroma_extractor, target, optimiser,
 
             pred_files = test.compute_labeling(
                 chord_process_fn, target_chords, test_set, dest_dir=exp_dir,
-                use_mask=False
+                use_mask=False, batch_size=testing['batch_size']
             )
 
             # compute chroma vectors for the test set
             for cf in compute_chroma(chroma_process_fn, test_set,
+                                     batch_size=training['batch_size'],
                                      dest_dir=exp_dir):
                 ex.add_artifact(cf)
 
@@ -464,8 +513,10 @@ def main(datasource, feature_extractor, chroma_extractor, target, optimiser,
             yaml.dump(dict(scores=scores,
                            chord_train_losses=map(float, crd_train_losses),
                            chord_val_losses=map(float, crd_val_losses),
+                           chord_val_accs=map(float, crd_val_accs),
                            chroma_train_losses=map(float, crm_train_losses),
-                           chroma_val_losses=map(float, crm_val_losses)),
+                           chroma_val_losses=map(float, crm_val_losses),
+                           chroma_val_accs=map(float, crm_val_accs)),
                       open(result_file, 'w'))
             ex.add_artifact(result_file)
 

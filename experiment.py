@@ -200,6 +200,7 @@ def setup(name):
     data.add_sacred_config(ex)
     features.add_sacred_config(ex)
     targets.add_sacred_config(ex)
+    augmenters.add_sacred_config(ex)
     return ex
 
 

@@ -6,7 +6,8 @@ from targets import one_hot
 
 class SemitoneShift(object):
 
-    def __init__(self, p, max_shift, bins_per_semitone):
+    def __init__(self, p, max_shift, bins_per_semitone,
+                 target_type='chords_maj_min'):
         """
         Augmenter that shifts by semitones a spectrum with logarithmically
         spaced frequency bins.
@@ -14,10 +15,35 @@ class SemitoneShift(object):
         :param p: percentage of data to be shifted
         :param max_shift: maximum number of semitones to shift
         :param bins_per_semitone: number of spectrogram bins per semitone
+        :param target_type: specifies target type
         """
         self.p = p
         self.max_shift = max_shift
         self.bins_per_semitone = bins_per_semitone
+
+        if target_type == 'chords_maj_min':
+            self.adapt_targets = self._adapt_targets_chords_maj_min
+        elif target_type == 'chroma':
+            self.adapt_targets = self._adapt_targets_chroma
+
+    def _adapt_targets_chords_maj_min(self, targets, shifts):
+        chord_classes = targets.argmax(-1)
+        no_chord_class = targets.shape[-1] - 1
+        no_chords = (chord_classes == no_chord_class)
+        chord_roots = chord_classes % 12
+        chord_majmin = chord_classes / 12
+
+        new_chord_roots = (chord_roots + shifts) % 12
+        new_chord_classes = new_chord_roots + chord_majmin * 12
+        new_chord_classes[no_chords] = no_chord_class
+        new_targets = one_hot(new_chord_classes, no_chord_class + 1)
+        return new_targets
+
+    def _adapt_targets_chroma(self, targets, shifts):
+        new_targets = np.empty_like(targets)
+        for i in range(len(targets)):
+            new_targets[i] = np.roll(targets[i], shifts[i], axis=-1)
+        return new_targets
 
     def __call__(self, batch_iterator):
         """
@@ -37,16 +63,8 @@ class SemitoneShift(object):
                                      int(batch_size * (1 - self.p)))
             shifts[no_shift] = 0
 
-            chord_classes = targets.argmax(-1)
-            no_chord_class = targets.shape[-1] - 1
-            no_chords = (chord_classes == no_chord_class)
-            chord_roots = chord_classes % 12
-            chord_majmin = chord_classes / 12
+            new_targets = self.adapt_targets(targets, shifts)
 
-            new_chord_roots = (chord_roots + shifts) % 12
-            new_chord_classes = new_chord_roots + chord_majmin * 12
-            new_chord_classes[no_chords] = no_chord_class
-            new_targets = one_hot(new_chord_classes, no_chord_class + 1)
 
             new_data = np.empty_like(data)
             for i in range(batch_size):
@@ -102,3 +120,21 @@ class Detuning(object):
 def create_augmenters(augmentation):
     return [globals()[name](**params)
             for name, params in augmentation.iteritems()]
+
+
+def add_sacred_config(ex):
+    ex.add_named_config(
+        'augmentation',
+        augmentation=dict(
+            SemitoneShift=dict(
+                p=1.0,
+                max_shift=4,
+                bins_per_semitone=2
+            ),
+            Detuning=dict(
+                p=1.0,
+                max_shift=0.4,
+                bins_per_semitone=2
+            )
+        )
+    )
