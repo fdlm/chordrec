@@ -352,17 +352,31 @@ def run(ex, build_fn, loss_fn,
             print(nn.to_string(neural_net))
             print('')
 
-            print(Colors.red('Starting training...\n'))
-
-            train_losses, val_losses, _, val_accs = nn.train(
-                network=neural_net,
-                train_fn=train_fn, train_batches=train_batches,
-                test_fn=test_fn, validation_batches=validation_batches,
-                threads=10, callbacks=[lrs] if lrs else [],
-                num_epochs=training['num_epochs'],
-                early_stop=training['early_stop'],
-                early_stop_acc=training['early_stop_acc']
-            )
+            if 'param_file' in training:
+                nn.load_params(neural_net,
+                               training['param_file'].format(test_fold))
+                train_losses = []
+                val_losses = []
+                val_accs = []
+            else:
+                if 'init_file' in training:
+                    print('initialising')
+                    nn.load_params(neural_net,
+                                   training['init_file'].format(test_fold))
+                print(Colors.red('Starting training...\n'))
+                train_losses, val_losses, _, val_accs = nn.train(
+                    network=neural_net,
+                    train_fn=train_fn, train_batches=train_batches,
+                    test_fn=test_fn, validation_batches=validation_batches,
+                    threads=10, callbacks=[lrs] if lrs else [],
+                    num_epochs=training['num_epochs'],
+                    early_stop=training['early_stop'],
+                    early_stop_acc=training['early_stop_acc']
+                )
+                param_file = os.path.join(
+                    exp_dir, 'params_fold_{}.pkl'.format(test_fold))
+                nn.save_params(neural_net, param_file)
+                ex.add_artifact(param_file)
 
             print(Colors.red('\nStarting testing...\n'))
 
