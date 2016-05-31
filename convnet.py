@@ -46,14 +46,6 @@ def stack_gap(net, out_size, num_filters, filter_size, dropout, batch_norm,
 
     net = lnn.layers.DropoutLayer(net, p=dropout)
 
-    # net = lnn.layers.Conv2DLayer(
-    #     net, num_filters=num_filters, filter_size=1,
-    #     pad=0, nonlinearity=lnn.nonlinearities.rectify,
-    #     name='Gap_Filters_Single')
-    # if batch_norm:
-    #     net = lnn.layers.batch_norm(net)
-    # net = lnn.layers.DropoutLayer(net, p=dropout)
-
     # output classification layer
     net = lnn.layers.Conv2DLayer(
         net, num_filters=out_size, filter_size=1,
