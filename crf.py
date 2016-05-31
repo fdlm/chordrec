@@ -185,7 +185,7 @@ def build_net(feature_shape, out_size, input_processor, crf, fine_tuning,
         net, lnn.regularization.l2) * crf['net']['l2']
     loss = compute_loss(net, target_var, mask_var) + l2_penalty
     test_loss = compute_loss(net, target_var, mask_var) + l2_penalty
-    viterbi_out = lnn.layers.get_output(net, mode='viterbi',
+    viterbi_out = lnn.layers.get_output(net, mode='decoding',
                                         deterministic=True)
     test = theano.function([feature_var, mask_var, target_var],
                            [test_loss, viterbi_out])
@@ -254,6 +254,10 @@ def config():
             max_seq_len=1024,  # at 10 fps, this corresponds to 102 seconds
             early_stop_acc=True,
         )
+    )
+
+    testing = dict(
+        test_on_val=False
     )
 
     fine_tuning = False
@@ -456,7 +460,7 @@ def optimiser_and_updates(optimiser):
 
 
 @ex.automain
-def main(_config, _run, observations, datasource, feature_extractor, target,
+def main(datasource, feature_extractor, target,
          input_processor, crf, fine_tuning, testing, plot):
 
     if feature_extractor is None:

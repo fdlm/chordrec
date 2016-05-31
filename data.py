@@ -107,7 +107,6 @@ def create_datasources(dataset_names, preprocessors,
                              compute_features, compute_targets)
                 for name in dataset_names]
 
-    # uses fold 0 for validation, fold 1 for test, rest for training
     train, val, test = dmgr.datasources.get_datasources(
         combine_files(*[ds.fold_split(val_fold, test_fold)
                         for ds in datasets]),

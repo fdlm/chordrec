@@ -3,6 +3,7 @@ import dmgr
 import test
 import os
 import shutil
+import fnmatch
 import scipy.stats
 from targets import ChordsMajMin
 from docopt import docopt
@@ -62,8 +63,9 @@ def main():
     out_dir = args['--out_dir']
 
     files = args['<files>']
-    ann_files = dmgr.files.match_files_single(files, '.chords.txt', '.chords')
-    pred_files = dmgr.files.match_files(ann_files, files, '.chords', '.chords.txt')
+    ann_files = fnmatch.filter(files, '*.chords')
+    pred_files = dmgr.files.match_files(ann_files, '.chords',
+                                        files, '.chords.txt')
 
     if args['--beats']:
         beat_files = dmgr.files.match_files(ann_files, files,
