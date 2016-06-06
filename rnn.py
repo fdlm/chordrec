@@ -91,7 +91,7 @@ def build_net(feature_shape, out_size, net):
         network, (true_batch_size, true_seq_len, out_size),
         name='output-reshape')
 
-    return network, input_var, mask_var, target_var
+    return network, input_var, target_var, mask_var
 
 
 # Initialise Sacred experiment

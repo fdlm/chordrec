@@ -5,13 +5,14 @@ import madmom as mm
 class ConstantQ:
 
     def __init__(self, num_bands=24, fmin=30, num_octaves=8,
-                 fps=10, align='c', sample_rate=44100):
+                 fps=10, align='c', log_div=500., sample_rate=44100):
 
         self.fps = fps
         self.num_bands = num_bands
         self.align = align
         self.fmin = fmin
         self.num_octaves = num_octaves
+        self.log_div = log_div
 
         self.sample_rate = sample_rate
 
@@ -35,9 +36,9 @@ class ConstantQ:
 
     @property
     def name(self):
-        return 'cqt_fps={}_num-bands={}_align={}_fmin={}_num_oct={}'.format(
-            self.fps, self.num_bands, self.align, self.fmin, self.num_octaves
-        )
+        return 'cqt_fps={}_num-bands={}_align={}_fmin={}_num_oct={}'\
+               '_logdiv={}'.format(self.fps, self.num_bands, self.align,
+                                   self.fmin, self.num_octaves, self.log_div)
 
     def __call__(self, audio_file):
 
@@ -48,7 +49,12 @@ class ConstantQ:
         cqt = self.engine.processAudio(audio.reshape((1, -1)))['cqt']
         # compensate for different padding in madmom vs. yaafe and convert
         # to float32
-        return np.vstack((cqt, np.zeros(cqt.shape[1:]))).astype(np.float32)
+        cqt = np.vstack((cqt, np.zeros(cqt.shape[1:]))).astype(np.float32)
+
+        if self.log_div:
+            return np.log(cqt / self.log_div + 1)
+        else:
+            return cqt
 
 
 class LogFiltSpec:
@@ -262,6 +268,20 @@ class HarmonicPitchClassProfile:
         return (hpcp / norm[:, np.newaxis]).astype(np.float32)
 
 
+class Mlsp:
+
+    def __init__(self, fps, fold):
+        self.fps = fps
+        self.fold = fold
+
+    @property
+    def name(self):
+        return 'mlsp/{}'.format(self.fold)
+
+    def __call__(self, audio_file):
+        raise NotImplementedError('This feature is only precomputed!')
+
+
 def add_sacred_config(ex):
     ex.add_named_config(
         'constant_q',
@@ -272,6 +292,7 @@ def add_sacred_config(ex):
                 num_bands=24,
                 fmin=30,
                 num_octaves=8,
+                log_div=500.,
             )
         )
     )
@@ -307,6 +328,17 @@ def add_sacred_config(ex):
             name='PerfectChroma',
             params=dict(
                 fps=10
+            )
+        )
+    )
+
+    ex.add_named_config(
+        'mlsp',
+        feature_extractor=dict(
+            name='Mlsp',
+            params=dict(
+                fps=10,
+                fold=6
             )
         )
     )

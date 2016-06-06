@@ -5,6 +5,7 @@ import pickle
 import shutil
 import hashlib
 import tempfile
+import sys
 from functools import partial
 from sacred import Experiment
 from sacred.observers import RunObserver
@@ -33,6 +34,38 @@ class TempDir:
 
     def __exit__(self, type, value, traceback):
         shutil.rmtree(self._tmp_dir_path)
+
+
+def compute_features(process_fn, agg_dataset, dest_dir, use_mask,
+                     batch_size, extension):
+    if not os.path.exists(dest_dir):
+        os.makedirs(dest_dir)
+    else:
+        if not os.path.isdir(dest_dir):
+            print(Colors.red('Destination path exists but is not a directory!'),
+                  file=sys.stderr)
+            return
+
+    iterate_batches = dmgr.iterators.iterate_batches
+
+    for ds_idx in range(agg_dataset.n_datasources):
+        ds = agg_dataset.datasource(ds_idx)
+
+        feats = []
+        for data, _ in iterate_batches(ds, batch_size or ds.n_data,
+                                       randomise=False, expand=False):
+            if use_mask:
+                data = data[np.newaxis, :]
+                mask = np.ones(data.shape[:2], dtype=np.float32)
+
+                f = process_fn(data, mask)[0]
+            else:
+                f = process_fn(data)
+            feats.append(f)
+
+        feats = np.concatenate(feats)
+        feat_file = os.path.join(dest_dir, ds.name + extension)
+        np.save(feat_file, feats)
 
 
 def create_optimiser(optimiser):
@@ -126,9 +159,8 @@ class PickleAndSymlinkObserver(RunObserver):
                                         self.hash())
 
         if not os.path.exists(config_save_path):
-            os.mkdir(config_save_path)
-            os.mkdir(os.path.join(config_save_path, 'resources'))
-            os.mkdir(os.path.join(config_save_path, 'artifacts'))
+            os.makedirs(os.path.join(config_save_path, 'resources'))
+            os.makedirs(os.path.join(config_save_path, 'artifacts'))
         return config_save_path
 
     def heartbeat_event(self, info, captured_out, beat_time):
@@ -204,25 +236,10 @@ def setup(name):
     return ex
 
 
-def train_iterator(train_set, training):
-    it = training.get('iterator', 'BatchIterator')
-
-    if it == 'BatchIterator':
-        return dmgr.iterators.BatchIterator(
-            train_set, training['batch_size'], randomise=True,
-            expand=True
-        )
-    elif it == 'ClassBalancedIterator':
-        return dmgr.iterators.UniformClassIterator(
-            train_set, training['batch_size']
-        )
-    else:
-        raise ValueError('Unknown Batch Iterator: {}'.format(it))
-
 
 def run(ex, build_fn, loss_fn,
         datasource, net, feature_extractor, regularisation, target,
-        optimiser, training, testing, augmentation):
+        optimiser, training, testing, augmentation, feature_out=None):
 
     if feature_extractor is None:
         print(Colors.red('ERROR: Specify a feature extractor!'))
@@ -230,6 +247,11 @@ def run(ex, build_fn, loss_fn,
 
     if target is None:
         print(Colors.red('ERROR: Specify a target!'))
+        return 1
+
+    if 'save_dir' in testing and feature_out is None:
+        print(Colors.red('ERROR: testing.save_dir set but '
+                         'no feature output layer provided'))
         return 1
 
     target_computer = targets.create_target(
@@ -311,7 +333,7 @@ def run(ex, build_fn, loss_fn,
 
                 use_mask = False
             elif len(nnet_vars) == 4:
-                neural_net, input_var, mask_var, target_var = nnet_vars
+                neural_net, input_var, target_var, mask_var = nnet_vars
 
                 train_batches = dmgr.iterators.SequenceIterator(
                     train_set, training['batch_size'], randomise=True,
@@ -332,6 +354,11 @@ def run(ex, build_fn, loss_fn,
                 )
 
             opt, lrs = create_optimiser(optimiser)
+
+            # ugly hack!
+            import inspect
+            if inspect.isclass(loss_fn):
+                loss_fn = loss_fn(neural_net)
 
             train_fn = nn.compile_train_fn(
                 neural_net, input_var, target_var,
@@ -380,10 +407,22 @@ def run(ex, build_fn, loss_fn,
 
             print(Colors.red('\nStarting testing...\n'))
 
-            param_file = os.path.join(
-                exp_dir, 'params_fold_{}.pkl'.format(test_fold))
-            nn.save_params(neural_net, param_file)
-            ex.add_artifact(param_file)
+            if 'save_dir' in testing:
+                feats = lnn.layers.get_output(feature_out, deterministic=True)
+                feature_fn = theano.function([input_var], feats)
+
+                compute_features(
+                    feature_fn, train_set, batch_size=testing['batch_size'],
+                    dest_dir=testing['save_dir'] + '/{}'.format(test_fold),
+                    extension='.features.npy', use_mask=True)
+                compute_features(
+                    feature_fn, val_set, batch_size=testing['batch_size'],
+                    dest_dir=testing['save_dir'] + '/{}'.format(test_fold),
+                    extension='.features.npy', use_mask=True)
+                compute_features(
+                    feature_fn, test_set, batch_size=testing['batch_size'],
+                    dest_dir=testing['save_dir'] + '/{}'.format(test_fold),
+                    extension='.features.npy', use_mask=True)
 
             pred_files = test.compute_labeling(
                 process_fn, target_computer, test_set, dest_dir=exp_dir,

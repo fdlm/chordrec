@@ -78,7 +78,7 @@ def build_net(feature_shape, out_size, input_processor, crf, fine_tuning,
         if input_processor['type'] == 'dense':
             net = lnn.layers.ReshapeLayer(net, (-1,) + feature_shape,
                                           name='reshape to single')
-            net = dnn.stack_layers(
+            net = dnn.stack_dense(
                 inp=net,
                 batch_norm=ip_net_cfg['batch_norm'],
                 nonlinearity=ip_net_cfg['nonlinearity'],
@@ -95,13 +95,13 @@ def build_net(feature_shape, out_size, input_processor, crf, fine_tuning,
             net = lnn.layers.ReshapeLayer(net, (-1, 1) + feature_shape,
                                           name='reshape to single')
             # first, stack convolutive layers
-            net = convnet.stack_layers(
-                net=net,
+            net = dnn.stack_conv(
+                network=net,
                 batch_norm=ip_net_cfg['batch_norm'],
                 convs=[ip_net_cfg[c] for c in ['conv1', 'conv2', 'conv3']]
             )
             # then, add dense layers
-            net = dnn.stack_layers(net, **ip_net_cfg['dense'])
+            net = dnn.stack_dense(net, **ip_net_cfg['dense'])
             net = lnn.layers.ReshapeLayer(
                 net,
                 (true_batch_size, true_seq_len,
