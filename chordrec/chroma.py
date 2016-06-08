@@ -284,6 +284,7 @@ def main(datasource, feature_extractor, target, chroma_network,
             )
 
             # compute chroma vectors for the test set
+            # TODO: replace this with experiment.compute_features
             for cf in compute_chroma(chroma_process_fn, test_set,
                                      batch_size=training['batch_size'],
                                      dest_dir=exp_dir):

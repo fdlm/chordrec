@@ -1,8 +1,8 @@
 from __future__ import print_function
-import os
-import yaml
 
-from nn.utils import Colors
+import os
+
+import yaml
 
 import data
 import dmgr
@@ -10,8 +10,10 @@ import features
 import nn
 import targets
 import test
-from experiment import TempDir, create_optimiser, setup
-from models import dnn
+
+from nn.utils import Colors
+from models import dnn, avg_gap_feature
+from experiment import TempDir, create_optimiser, setup, compute_features
 
 # Initialise Sacred experiment
 ex = setup('Classify Chords')
@@ -33,6 +35,7 @@ def _cfg():
 
 # add models
 dnn.add_sacred_config(ex)
+avg_gap_feature.add_sacred_config(ex)
 
 
 # add general configs
@@ -47,18 +50,18 @@ def learn_rate_schedule():
 
 
 @ex.automain
-def main(datasource, feature_extractor, target, model, optimiser,
+def main(_log, datasource, feature_extractor, target, model, optimiser,
          training, regularisation, augmentation, testing):
 
     err = False
     if model is None or not model or 'type' not in model:
-        print(Colors.red('ERROR: Specify a model!'))
+        _log.error(Colors.red('Specify a model!'))
         err = True
     if feature_extractor is None:
-        print(Colors.red('ERROR: Specify a feature extractor!'))
+        _log.error(Colors.red('Specify a feature extractor!'))
         err = True
     if target is None:
-        print(Colors.red('ERROR: Specify a target!'))
+        _log.error(Colors.red('Specify a target!'))
         err = True
     if err:
         return 1
@@ -80,8 +83,7 @@ def main(datasource, feature_extractor, target, model, optimiser,
             datasource['val_fold'] *= len(datasource['test_fold'])
 
     if len(datasource['test_fold']) != len(datasource['val_fold']):
-        print(Colors.red('ERROR: Need same number of validation and '
-                         'test folds'))
+        _log.error(Colors.red('Need same number of validation and test folds'))
         return 1
 
     all_pred_files = []
@@ -136,7 +138,7 @@ def main(datasource, feature_extractor, target, model, optimiser,
 
             # optional parts
             mask_var = mdl.get('mask_var')
-            # TODO: compute_feature function
+            feature_out = mdl.get('feature_out')
 
             train_batches, validation_batches = model_type.create_iterators(
                 train_set, val_set, training, augmentation
@@ -158,6 +160,13 @@ def main(datasource, feature_extractor, target, model, optimiser,
 
             process_fn = nn.compile_process_func(
                 neural_net, input_var, mask_var=mask_var)
+
+            if feature_out is not None:
+                feature_fn = nn.compile_process_func(
+                    feature_out, input_var, mask_var=mask_var
+                )
+            else:
+                feature_fn = None
 
             print(Colors.blue('Neural Network:'))
             print(nn.to_string(neural_net))
@@ -191,22 +200,22 @@ def main(datasource, feature_extractor, target, model, optimiser,
 
             print(Colors.red('\nStarting testing...\n'))
 
-            # if 'save_dir' in testing:
-            #     feats = lnn.layers.get_output(feature_out, deterministic=True)
-            #     feature_fn = theano.function([input_var], feats)
-            #
-            #     compute_features(
-            #         feature_fn, train_set, batch_size=testing['batch_size'],
-            #         dest_dir=testing['save_dir'] + '/{}'.format(test_fold),
-            #         extension='.features.npy', use_mask=True)
-            #     compute_features(
-            #         feature_fn, val_set, batch_size=testing['batch_size'],
-            #         dest_dir=testing['save_dir'] + '/{}'.format(test_fold),
-            #         extension='.features.npy', use_mask=True)
-            #     compute_features(
-            #         feature_fn, test_set, batch_size=testing['batch_size'],
-            #         dest_dir=testing['save_dir'] + '/{}'.format(test_fold),
-            #         extension='.features.npy', use_mask=True)
+            if feature_fn is not None:
+                dest_dir = os.path.join(exp_dir,
+                                        'features_fold_{}'.format(test_fold))
+                compute_features(
+                    feature_fn, train_set, batch_size=testing['batch_size'],
+                    dest_dir=dest_dir, extension='.features.npy',
+                    use_mask=mask_var is not None)
+                compute_features(
+                    feature_fn, val_set, batch_size=testing['batch_size'],
+                    dest_dir=dest_dir, extension='.features.npy',
+                    use_mask=mask_var is not None)
+                compute_features(
+                    feature_fn, test_set, batch_size=testing['batch_size'],
+                    dest_dir=dest_dir, extension='.features.npy',
+                    use_mask=mask_var is not None)
+                ex.add_artifact(dest_dir)
 
             pred_files = test.compute_labeling(
                 process_fn, target_computer, test_set, dest_dir=exp_dir,

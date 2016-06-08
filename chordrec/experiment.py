@@ -48,6 +48,8 @@ def compute_features(process_fn, agg_dataset, dest_dir, use_mask,
 
     iterate_batches = dmgr.iterators.iterate_batches
 
+    feature_files = []
+
     for ds_idx in range(agg_dataset.n_datasources):
         ds = agg_dataset.datasource(ds_idx)
 
@@ -66,6 +68,9 @@ def compute_features(process_fn, agg_dataset, dest_dir, use_mask,
         feats = np.concatenate(feats)
         feat_file = os.path.join(dest_dir, ds.name + extension)
         np.save(feat_file, feats)
+        feature_files.append(feat_file)
+
+    return feature_files
 
 
 def create_optimiser(optimiser):
