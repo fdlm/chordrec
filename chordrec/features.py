@@ -4,8 +4,8 @@ import madmom as mm
 
 class ConstantQ:
 
-    def __init__(self, num_bands=24, fmin=30, num_octaves=8,
-                 fps=10, align='c', log_div=500., sample_rate=44100):
+    def __init__(self, num_bands, fmin, num_octaves, fps, align, log_div,
+                 sample_rate=44100, fold=None):
 
         self.fps = fps
         self.num_bands = num_bands
@@ -60,7 +60,7 @@ class ConstantQ:
 class LogFiltSpec:
 
     def __init__(self, frame_sizes, num_bands, fmin, fmax, fps, unique_filters,
-                 sample_rate=44100):
+                 sample_rate=44100, fold=None):
 
         self.frame_sizes = frame_sizes
         self.num_bands = num_bands
@@ -92,24 +92,10 @@ class LogFiltSpec:
         return np.hstack(specs).astype(np.float32)
 
 
-class ChromaClp:
-
-    def __init__(self, fps):
-        assert fps == 10
-
-    @property
-    def name(self):
-        return 'chroma_clp_fps=10'
-
-    def __call__(self, audio_file):
-        # this feature is precompute-only!
-        raise NotImplementedError('This feature is only precomputed!')
-
-
 class Chroma:
 
     def __init__(self, frame_size, fmax, fps, oct_width, center_note, log_eta,
-                 sample_rate=44100):
+                 sample_rate=44100, fold=None):
         self.fps = fps
         self.fmax = fmax
         self.sample_rate = sample_rate
@@ -167,7 +153,8 @@ class Chroma:
 
 class ChromaCq:
 
-    def __init__(self, fps, win_center, win_width, log_eta, sample_rate=44100):
+    def __init__(self, fps, win_center, win_width, log_eta,
+                 sample_rate=44100, fold=None):
         """
         Computes Chromas from a constant q transform.
         :param fps:          frames per second
@@ -226,23 +213,10 @@ class ChromaCq:
                                           norm=2).T.astype(np.float32)
 
 
-class PerfectChroma:
-
-    def __init__(self, fps):
-        self.fps = fps
-
-    @property
-    def name(self):
-        return 'perfect_chroma_fps={}'.format(self.fps)
-
-    def __call__(self, audio_file):
-        # this feature is precompute-only
-        raise NotImplementedError('This feature is only precomputed')
-
-
 class HarmonicPitchClassProfile:
 
-    def __init__(self, fps, frame_size, fmax, num_bands, sample_rate=44100):
+    def __init__(self, fps, frame_size, fmax, num_bands,
+                 sample_rate=44100, fold=None):
         self.fps = fps
         self.frame_size = frame_size
         self.fmax = fmax
@@ -268,15 +242,16 @@ class HarmonicPitchClassProfile:
         return (hpcp / norm[:, np.newaxis]).astype(np.float32)
 
 
-class Mlsp:
+class PrecomputedFeature:
 
-    def __init__(self, fps, fold):
+    def __init__(self, name, fps, fold):
+        self._name = name
         self.fps = fps
         self.fold = fold
 
     @property
     def name(self):
-        return 'mlsp/{}'.format(self.fold)
+        return self._name.format(fps=self.fps, fold=self.fold)
 
     def __call__(self, audio_file):
         raise NotImplementedError('This feature is only precomputed!')
@@ -293,6 +268,7 @@ def add_sacred_config(ex):
                 fmin=30,
                 num_octaves=8,
                 log_div=500.,
+                align='c'
             )
         )
     )
@@ -315,8 +291,9 @@ def add_sacred_config(ex):
     ex.add_named_config(
         'chroma_clp',
         feature_extractor=dict(
-            name='ChromaClp',
+            name='PrecomputedFeature',
             params=dict(
+                name='chroma_clp_fps={fps}',
                 fps=10,
             )
         )
@@ -325,20 +302,21 @@ def add_sacred_config(ex):
     ex.add_named_config(
         'perfect_chroma',
         feature_extractor=dict(
-            name='PerfectChroma',
+            name='PrecomputedFeature',
             params=dict(
+                name='perfect_chroma_fps={fps}',
                 fps=10
             )
         )
     )
 
     ex.add_named_config(
-        'mlsp',
+        'gap_feature',
         feature_extractor=dict(
-            name='Mlsp',
+            name='PrecomputedFeature',
             params=dict(
+                name='gap_feature/features_fold_{fold}',
                 fps=10,
-                fold=6
             )
         )
     )
@@ -427,5 +405,5 @@ def add_sacred_config(ex):
     )
 
 
-def create_extractor(config):
-    return globals()[config['name']](**config['params'])
+def create_extractor(config, fold):
+    return globals()[config['name']](fold=fold, **config['params'])

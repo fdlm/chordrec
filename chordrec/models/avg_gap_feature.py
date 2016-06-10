@@ -5,13 +5,10 @@ from dnn import *
 def build_model(in_shape, out_size, model):
     network, input_var, target_var = build_net(in_shape, out_size, model)
 
-    # create the feature output by going back to the second-to-last
-    # convolutional layer
-    n_layers_skip = 1
+    # this goes back to the nonlinearity layer of the penultimate conv layer
+    # (after batchnorm!)
     feature_layer = network
-    while type(feature_layer) != lnn.layers.Conv2DLayer or n_layers_skip > 0:
-        if type(feature_layer) == lnn.layers.Conv2DLayer:
-            n_layers_skip -= 1
+    for _ in range(7):
         feature_layer = feature_layer.input_layer
 
     # average the feature maps of this conv layer
