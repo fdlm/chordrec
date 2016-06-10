@@ -10,9 +10,8 @@ from nn.utils import Colors
 PREDICTION_EXT = '.chords.txt'
 
 
-# TODO: What does add_time_dim do and how can I remove it?
 def compute_labeling(process_fn, target, agg_dataset, dest_dir, use_mask,
-                     batch_size=None, add_time_dim=False, extension='.chords.txt'):
+                     batch_size=None, extension='.chords.txt'):
     """
     Computes and saves the labels for each datasource in an aggragated
     datasource
@@ -41,9 +40,6 @@ def compute_labeling(process_fn, target, agg_dataset, dest_dir, use_mask,
         pred = []
         for data, _ in iterate_batches(ds, batch_size or ds.n_data,
                                        randomise=False, expand=False):
-            if add_time_dim:
-                data = data[:, np.newaxis, ...]
-
             if use_mask:
                 data = data[np.newaxis, :]
                 mask = np.ones(data.shape[:2], dtype=np.float32)

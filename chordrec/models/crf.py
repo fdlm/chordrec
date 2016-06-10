@@ -1,9 +1,10 @@
-import augmenters
 import theano.tensor as tt
 
 import dmgr
 import lasagne as lnn
 import spaghetti as spg
+
+from .. import augmenters
 
 
 class CrfLoss:

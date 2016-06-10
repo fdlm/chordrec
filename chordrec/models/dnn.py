@@ -3,7 +3,7 @@ import lasagne as lnn
 
 import dmgr
 
-import augmenters
+from .. import augmenters
 from . import blocks
 
 

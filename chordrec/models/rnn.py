@@ -1,8 +1,9 @@
-import augmenters
 import theano.tensor as tt
 
 import dmgr
 import lasagne as lnn
+
+from .. import augmenters
 from . import blocks
 
 
