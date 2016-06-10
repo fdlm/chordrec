@@ -12,7 +12,7 @@ import targets
 import test
 
 from nn.utils import Colors
-from models import dnn, avg_gap_feature, crf
+from models import dnn, avg_gap_feature, crf, rnn
 from experiment import TempDir, create_optimiser, setup, compute_features
 
 # Initialise Sacred experiment
@@ -37,6 +37,7 @@ def _cfg():
 dnn.add_sacred_config(ex)
 avg_gap_feature.add_sacred_config(ex)
 crf.add_sacred_config(ex)
+rnn.add_sacred_config(ex)
 
 
 # add general configs
