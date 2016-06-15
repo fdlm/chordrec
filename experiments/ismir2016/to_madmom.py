@@ -5,10 +5,10 @@ from docopt import docopt
 from os.path import join
 
 USAGE = """
-to_mm_net.py - creates madmom neural network.
+to_madmom.py - creates madmom models for the DeepChromaProcessor.
 
 Usage:
-    to_mm_net.py <param_dir> [<dst_name>]
+    to_madmom.py <param_dir> [<dst_name>]
 
 Arguments:
     <param_dir>  directory containing the parameter files
