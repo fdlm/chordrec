@@ -1,0 +1,43 @@
+augmentation: null
+chroma_network:
+  model:
+      type: 'chroma_dnn'
+      dense: {batch_norm: false, dropout: 0.5, nonlinearity: 'rectify',
+              num_layers: 3, num_units: 512}
+      out_nonlinearity: 'sigmoid'
+  optimiser:
+    name: 'adam'
+    params: {learning_rate: 0.0001}
+    schedule: null
+  regularisation: {l1: 0.0, l2: 0.0001}
+  training: {batch_size: 512, early_stop: 20, early_stop_acc: false,
+             iterator: 'BatchIterator', num_epochs: 500}
+datasource:
+  cached: true
+  context_size: 7
+  datasets: [beatles, zweieck, queen, rwc, robbie_williams]
+  preprocessors: []
+  test_fold: [0, 1, 2, 3, 4, 5, 6, 7]
+  val_fold: null
+feature_extractor:
+  name: LogFiltSpec
+  params:
+    fmax: 5500
+    fmin: 30
+    fps: 10
+    frame_sizes: [8192]
+    num_bands: 24
+    unique_filters: false
+observations: 'results/deep_chroma_test'
+optimiser:
+  name: 'adam'
+  params: {learning_rate: 0.001}
+  schedule: null
+# this is the seed of the best achieved result. seed: 13436906
+target:
+  name: ChordsMajMin
+  params: {}
+regularisation: {l1: 0.0, l2: 0.0001}
+testing: {batch_size: 512, test_on_val: false}
+training: {batch_size: 512, early_stop: 20, early_stop_acc: true,
+           iterator: 'BatchIterator', num_epochs: 500}

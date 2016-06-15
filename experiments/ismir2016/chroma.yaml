@@ -1,0 +1,29 @@
+augmentation: null
+datasource:
+  cached: true
+  context_size: 13
+  datasets: [beatles, zweieck, queen, rwc, robbie_williams]
+  preprocessors: []
+  test_fold: [0, 1, 2, 3, 4, 5, 6, 7]
+  val_fold: null
+feature_extractor:
+  name: ChromaCq
+  params: {fps: 9.986413043478262, log_eta: null, win_center: null, win_width: null}
+model:
+    type: 'dnn'
+    dense: {batch_norm: false, dropout: 0.5, nonlinearity: 'rectify',
+            num_layers: 0, num_units: 0}
+    out_nonlinearity: 'softmax'
+observations: 'results/chroma_test'
+optimiser:
+  name: 'adam'
+  params: {learning_rate: 0.001}
+  schedule: null
+regularisation: {l1: 0.0, l2: 0.0001}
+# this is the seed of the best achieved result seed: 288170960
+target:
+  name: ChordsMajMin
+  params: {}
+testing: {batch_size: null, test_on_val: false}
+training: {batch_size: 512, early_stop: 20, early_stop_acc: true,
+           iterator: 'BatchIterator', num_epochs: 500}
