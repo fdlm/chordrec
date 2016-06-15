@@ -322,6 +322,17 @@ def add_sacred_config(ex):
     )
 
     ex.add_named_config(
+        'deep_chroma',
+        feature_extractor=dict(
+            name='PrecomputedFeature',
+            params=dict(
+                name='deep_chroma',
+                fps=10
+            )
+        )
+    )
+
+    ex.add_named_config(
         'hpcp',
         feature_extractor=dict(
             name='HarmonicPitchClassProfile',

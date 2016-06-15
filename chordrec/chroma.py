@@ -121,7 +121,8 @@ def main(datasource, feature_extractor, target, chroma_network,
             # Load data sets
             print(Colors.red('\nLoading data...\n'))
 
-            feature_ext = features.create_extractor(feature_extractor)
+            feature_ext = features.create_extractor(feature_extractor,
+                                                    test_fold)
             train_set, val_set, test_set, gt_files = data.create_datasources(
                 dataset_names=datasource['datasets'],
                 preprocessors=datasource['preprocessors'],

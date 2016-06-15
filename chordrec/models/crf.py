@@ -20,7 +20,9 @@ class CrfLoss:
 
 def build_net(in_shape, out_size, model):
     # input variables
-    input_var = tt.tensor3('input', dtype='float32')
+    input_var = (tt.tensor4('input', dtype='float32')
+                 if len(in_shape) > 1 else
+                 tt.tensor3('input', dtype='float32'))
     target_var = tt.tensor3('target_output', dtype='float32')
     mask_var = tt.matrix('mask_input', dtype='float32')
 

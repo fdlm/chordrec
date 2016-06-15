@@ -15,7 +15,7 @@ def build_model(in_shape, out_size, model):
     feature_out = tt.mean(feature_out, axis=(2, 3))
 
     return dict(network=network, input_var=input_var, target_var=target_var,
-                loss_fn=compute_loss, feature_out=feature_out)
+                loss_fn=categorical_crossentropy, feature_out=feature_out)
 
 
 def add_sacred_config(ex):

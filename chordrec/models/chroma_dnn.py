@@ -37,7 +37,8 @@ def build_model(in_shape, out_size_chroma, out_size, model):
                                             out_size, model)
     return dict(chroma_network=crm, chord_network=crd,
                 input_var=inv, chroma_target_var=crmv, chord_target_var=crdv,
-                chroma_loss_fn=compute_loss, chord_loss_fn=dnn.compute_loss)
+                chroma_loss_fn=compute_loss,
+                chord_loss_fn=dnn.categorical_crossentropy)
 
 
 create_iterators = dnn.create_iterators
@@ -49,7 +50,7 @@ def add_sacred_config(ex):
 
     ex.add_named_config(
         name='dense_net',
-        datasource = dict(
+        datasource=dict(
             context_size=7,
         ),
         chroma_network=dict(

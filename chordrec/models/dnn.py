@@ -7,11 +7,17 @@ from .. import augmenters
 from . import blocks
 
 
-def compute_loss(prediction, target):
+def categorical_crossentropy(prediction, target):
     # need to clip predictions for numerical stability
     eps = 1e-7
     pred_clip = tt.clip(prediction, eps, 1.-eps)
     return lnn.objectives.categorical_crossentropy(pred_clip, target).mean()
+
+
+def categorical_mse(predictions, targets):
+    """ Mean squared error on class targets """
+    return tt.mean(
+        (1.0 - predictions[tt.arange(targets.shape[0]), targets]) ** 2)
 
 
 def build_net(in_shape, out_size, model):
@@ -70,7 +76,7 @@ def train_iterator(train_set, training):
 def build_model(in_shape, out_size, model):
     network, input_var, target_var = build_net(in_shape, out_size, model)
     return dict(network=network, input_var=input_var, target_var=target_var,
-                loss_fn=compute_loss)
+                loss_fn=categorical_crossentropy)
 
 
 def create_iterators(train_set, val_set, training, augmentation):
