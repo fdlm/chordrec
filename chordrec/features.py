@@ -242,6 +242,21 @@ class HarmonicPitchClassProfile:
         return (hpcp / norm[:, np.newaxis]).astype(np.float32)
 
 
+class DeepChroma:
+
+    def __init__(self, fps, sample_rate=44100, fold=None):
+        assert fps == 10, 'Cannot handle fps different from 10 yet.'
+        from madmom.audio.chroma import DeepChromaProcessor
+        self.dcp = DeepChromaProcessor()
+
+    @property
+    def name(self):
+        return 'deep_chroma'
+
+    def __call__(self, audio_file):
+        return self.dcp(audio_file)
+
+
 class PrecomputedFeature:
 
     def __init__(self, name, fps, fold):
@@ -322,11 +337,21 @@ def add_sacred_config(ex):
     )
 
     ex.add_named_config(
-        'deep_chroma',
+        'deep_chroma_pc',
         feature_extractor=dict(
             name='PrecomputedFeature',
             params=dict(
-                name='deep_chroma',
+                name='deep_chroma_pc',
+                fps=10
+            )
+        )
+    )
+
+    ex.add_named_config(
+        'deep_chroma',
+        feature_extractor=dict(
+            name='DeepChroma',
+            params=dict(
                 fps=10
             )
         )

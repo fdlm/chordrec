@@ -165,14 +165,14 @@ class ChordsMajMin(IntervalAnnotationTarget):
 
         semitone_to_label = dict(sharp + natural)
 
-        def pred_to_cl(pred):
+        def pred_to_label(pred):
             if pred == 24:
                 return 'N'
             return '{}:{}'.format(semitone_to_label[pred % 12],
                                   'maj' if pred < 12 else 'min')
 
         spf = 1. / self.fps
-        labels = [(i * spf, pred_to_cl(p)) for i, p in enumerate(targets)]
+        labels = [(i * spf, pred_to_label(p)) for i, p in enumerate(targets)]
 
         # join same consequtive predictions
         prev_label = (None, None)
@@ -262,6 +262,80 @@ class ChordsRoot(IntervalAnnotationTarget):
         return zip(start_times, end_times, chord_labels)
 
 
+class ChordsMajMinSevenths(IntervalAnnotationTarget):
+
+    def __init__(self, fps):
+        # 73 classes - maj, 7, maj7, min, min7 minmaj7 with 12 each, 1 no chord
+        super(ChordsMajMinSevenths, self).__init__(fps, 73)
+
+    @property
+    def name(self):
+        return 'chords_majminsevenths_fps={}'.format(self.fps)
+
+    def _dummy_target(self):
+        dt = np.zeros(self.num_classes, dtype=np.float32)
+        dt[-1] = 1
+        return dt
+
+    def _annotations_to_targets(self, labels):
+        root, semis, _ = mir_eval.chord.encode_many(labels, True)
+        class_ids = root.copy()
+
+        # 'no chord' is last class
+        class_ids[class_ids == -1] = self.num_classes - 1
+
+        # minor chords start at idx 36
+        class_ids[semis[:, 3] == 1] += 36
+
+        # seventh shift
+        seventh = semis[:, 10] == 1
+        maj_seventh = semis[:, 11] == 1
+
+        # this weirdness is necessary because of a B:sus4(b7)/7 annotation
+        # in the RWC corpus...
+        maj_seventh &= ~seventh
+        assert (seventh & maj_seventh).sum() == 0
+
+        class_ids[seventh] += 12
+        class_ids[maj_seventh] += 24
+
+        return one_hot(class_ids, self.num_classes)
+
+    def _targets_to_annotations(self, targets):
+        natural = zip([0, 2, 3, 5, 7, 8, 10], string.uppercase[:7])
+        sharp = map(lambda v: ((v[0] + 1) % 12, v[1] + '#'), natural)
+        roots = {(a - 3) % 12: b for a, b in dict(sharp + natural).iteritems()}
+        ext = ['maj', '7', 'maj7', 'min', 'min7', 'minmaj7']
+
+        def pred_to_label(pred):
+            if pred == self.num_classes - 1:
+                return 'N'
+
+            return '{root}:{ext}'.format(
+                root=roots[pred % 12],
+                ext=ext[pred / 12]
+            )
+
+        spf = 1. / self.fps
+        labels = [(i * spf, pred_to_label(p)) for i, p in enumerate(targets)]
+
+        # join same consequtive predictions
+        prev_label = (None, None)
+        uniq_labels = []
+
+        for label in labels:
+            if label[1] != prev_label[1]:
+                uniq_labels.append(label)
+                prev_label = label
+
+        # end time of last label is one frame duration after
+        # the last prediction time
+        start_times, chord_labels = zip(*uniq_labels)
+        end_times = start_times[1:] + (labels[-1][0] + spf,)
+
+        return zip(start_times, end_times, chord_labels)
+
+
 class ChromaTarget(IntervalAnnotationTarget):
 
     def __init__(self, fps):
@@ -296,6 +370,13 @@ def add_sacred_config(ex):
         'chords_root',
         target=dict(
             name='ChordsRoot',
+            params=dict()
+        )
+    )
+    ex.add_named_config(
+        'chords_maj_min_sevenths',
+        target=dict(
+            name='ChordsMajMinSevenths',
             params=dict()
         )
     )
