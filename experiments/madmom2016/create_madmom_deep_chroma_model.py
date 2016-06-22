@@ -5,13 +5,14 @@ from docopt import docopt
 from os.path import join
 
 USAGE = """
-to_madmom.py - creates madmom models for the DeepChromaProcessor.
+create_madmom_deep_chroma_model.py - creates madmom models for the
+                                     DeepChromaProcessor.
 
 Usage:
-    to_madmom.py <param_dir> [<dst_name>]
+    create_madmom_deep_chroma_model.py <param_dir> [<dst_name>]
 
 Arguments:
-    <param_dir>  directory containing the parameter files
+    <param_dir>  directory containing the parameter files (params_fold_x.pkl)
     <dst_name>  name format for destination files. '{}' will be replaced
                 with the model number [default: chroma_nn_{}.pkl]
 """
