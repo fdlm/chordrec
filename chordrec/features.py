@@ -269,7 +269,9 @@ class PrecomputedFeature:
         return self._name.format(fps=self.fps, fold=self.fold)
 
     def __call__(self, audio_file):
-        raise NotImplementedError('This feature is only precomputed!')
+        raise NotImplementedError(
+            'Cannot compute features for {}. '
+            'This feature is only precomputed!'.format(audio_file))
 
 
 def add_sacred_config(ex):

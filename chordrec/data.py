@@ -93,7 +93,9 @@ def create_datasources(dataset_names, preprocessors,
                        test_fold=0, val_fold=None,
                        **kwargs):
 
-    val_fold = val_fold if val_fold is not None else test_fold - 1
+    if test_fold is not None and val_fold is None:
+        val_fold = test_fold - 1
+
     preprocessors = create_preprocessors(preprocessors)
 
     if context_size > 0:
@@ -107,12 +109,28 @@ def create_datasources(dataset_names, preprocessors,
                              compute_features, compute_targets)
                 for name in dataset_names]
 
-    train, val, test = dmgr.datasources.get_datasources(
-        combine_files(*[ds.fold_split(val_fold, test_fold)
-                        for ds in datasets]),
-        preprocessors=preprocessors, data_source_type=data_source_type,
+    if test_fold is not None:
+        files = combine_files(*[ds.fold_split(val_fold, test_fold)
+                                for ds in datasets])
+    else:
+        # times three such that train, validation and test set are the same
+        files = combine_files(*[[ds.all_files()]
+                                for ds in datasets])
+
+    ds = dmgr.datasources.get_datasources(
+        files, preprocessors=preprocessors, data_source_type=data_source_type,
         **kwargs
     )
+
+    if len(ds) == 3:
+        train, val, test = ds
+    elif len(ds) == 1:
+        train = ds[0]
+        val = ds[0]
+        test = ds[0]
+    else:
+        raise RuntimeError('Got {} datasources,'
+                           ' expected 1 or 3.'.format(len(ds)))
 
     return train, val, test, sum((ds.gt_files for ds in datasets), [])
 

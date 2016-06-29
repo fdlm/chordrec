@@ -244,6 +244,11 @@ def main(_log, datasource, feature_extractor, target, model, optimiser,
                       open(result_file, 'w'))
             ex.add_artifact(result_file)
 
+            # delete datasets so disk space is free
+            del train_set
+            del val_set
+            del test_set
+
         # if there is something to aggregate
         if len(datasource['test_fold']) > 1:
             print(Colors.yellow('\nAggregated Results:\n'))
