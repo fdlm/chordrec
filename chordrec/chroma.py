@@ -17,7 +17,7 @@ from models import chroma_dnn
 
 
 def compute_chroma(process_fn, agg_dataset, dest_dir, batch_size,
-                   extension='.chroma.npy'):
+                   extension='.features.npy'):
     if not os.path.exists(dest_dir):
         os.makedirs(dest_dir)
 

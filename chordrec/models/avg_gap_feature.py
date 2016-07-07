@@ -85,3 +85,68 @@ def add_sacred_config(ex):
             batch_size=512
         )
     )
+
+    ex.add_named_config(
+        name='gap_feature_extractor_mm_2016',
+        datasource=dict(
+            context_size=11,
+        ),
+        model=dict(
+            type='avg_gap_feature',
+            conv=dict(
+                conv1=dict(
+                    num_layers=4,
+                    num_filters=32,
+                    filter_size=(3, 3),
+                    pool_size=(1, 2),
+                    dropout=0.5,
+                    pad='valid',
+                    batch_norm=True,
+                ),
+                conv2=dict(
+                    num_layers=2,
+                    num_filters=64,
+                    filter_size=(3, 3),
+                    pool_size=(1, 2),
+                    dropout=0.5,
+                    pad='valid',
+                    batch_norm=True,
+                ),
+                conv3=dict(
+                    num_layers=1,
+                    num_filters=128,
+                    filter_size=(9, 12),
+                    pool_size=None,
+                    dropout=0.5,
+                    pad='valid',
+                    batch_norm=True
+                )
+            ),
+            gap=dict(
+                batch_norm=True,
+                gap_nonlinearity='linear',
+            ),
+            out_nonlinearity='softmax'
+        ),
+        optimiser=dict(
+            name='adam',
+            params=dict(
+                learning_rate=0.001
+            ),
+            schedule=None
+        ),
+        training=dict(
+            num_epochs=500,
+            early_stop=5,
+            early_stop_acc=True,
+            batch_size=512,
+        ),
+        regularisation=dict(
+            l2=1e-7,
+            l1=0
+        ),
+        testing=dict(
+            test_on_val=False,
+            batch_size=512
+        )
+    )

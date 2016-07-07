@@ -4,7 +4,7 @@ from docopt import docopt
 
 import dmgr
 
-import test
+from chordrec import test
 
 
 USAGE = """

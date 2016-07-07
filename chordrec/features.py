@@ -1,5 +1,6 @@
 import numpy as np
 import madmom as mm
+import pickle
 
 
 class ConstantQ:
@@ -244,14 +245,26 @@ class HarmonicPitchClassProfile:
 
 class DeepChroma:
 
-    def __init__(self, fps, sample_rate=44100, fold=None):
+    def __init__(self, fps, fmin=65, fmax=2100, unique_filters=True,
+                 models=None, sample_rate=44100, fold=None):
         assert fps == 10, 'Cannot handle fps different from 10 yet.'
         from madmom.audio.chroma import DeepChromaProcessor
-        self.dcp = DeepChromaProcessor()
+        from hashlib import sha1
+        self.fps = fps
+        self.fmin = fmin
+        self.fmax = fmax
+        self.unique_filters = unique_filters
+        self.dcp = DeepChromaProcessor(
+            fmin=fmin, fmax=fmax, unique_filters=unique_filters, models=models
+        )
+        self.model_hash = sha1(pickle.dumps(self.dcp)).hexdigest()
 
     @property
     def name(self):
-        return 'deep_chroma'
+        return 'deepchroma_fps={}_fmin={}_fmax={}_uf={}_mdlhsh={}'.format(
+            self.fps, self.fmin, self.fmax, self.unique_filters,
+            self.model_hash
+        )
 
     def __call__(self, audio_file):
         return self.dcp(audio_file)
