@@ -2,7 +2,7 @@ import numpy as np
 import pickle
 from docopt import docopt
 
-USAGE="""
+USAGE = """
 create_crf_init_params.py - creates initial crf parameters from a learned
                             gap convnet.
 

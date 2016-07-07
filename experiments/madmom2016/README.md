@@ -55,7 +55,7 @@ initialisation file for the CRF,
 and train the CRF for chord sequence decoding:
 
     $ python -m chordrec.classify with crf_chord_rec.yaml \
-                feature_extractor.params.name='../../results/<cn_expid>/artifacts' \
+                feature_extractor.params.name='../../results/<cn_expid>/artifacts/features_fold_None' \
                 training.init_file='crf_init_params.pkl'
 
 Also note the corresponding experiment id (`<cncr_expid>`). Then, convert the

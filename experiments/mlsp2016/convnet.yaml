@@ -1,0 +1,58 @@
+augmentation:
+  Detuning: {bins_per_semitone: 2, max_shift: 0.4, p: 1.0}
+  SemitoneShift: {bins_per_semitone: 2, max_shift: 4, p: 1.0}
+datasource:
+  cached: true
+  context_size: 7
+  datasets: [beatles, queen, zweieck, robbie_williams, rwc]
+  preprocessors: []
+  test_fold: [0, 1, 2, 3, 4, 5, 6, 7]
+  val_fold: null
+feature_extractor:
+  name: LogFiltSpec
+  params:
+    fmax: 2100
+    fmin: 65
+    fps: 10
+    frame_sizes: [8192]
+    num_bands: 24
+    unique_filters: true
+model:
+  conv:
+    conv1:
+      batch_norm: true
+      dropout: 0.5
+      filter_size: [3, 3]
+      num_filters: 32
+      num_layers: 4
+      pad: same
+      pool_size: [1, 2]
+    conv2:
+      batch_norm: true
+      dropout: 0.5
+      filter_size: [3, 3]
+      num_filters: 64
+      num_layers: 2
+      pad: valid
+      pool_size: [1, 2]
+    conv3:
+      batch_norm: true
+      dropout: 0.5
+      filter_size: [9, 12]
+      num_filters: 128
+      num_layers: 1
+      pad: valid
+      pool_size: null
+  out_nonlinearity: softmax
+  type: dnn
+observations: 'results'
+optimiser:
+  name: adam
+  params: {learning_rate: 0.001}
+  schedule: null
+regularisation: {l1: 0, l2: 1.0e-07}
+target:
+  name: ChordsMajMin
+  params: {}
+testing: {batch_size: 512, test_on_val: false}
+training: {batch_size: 512, early_stop: 5, early_stop_acc: true, num_epochs: 500}
