@@ -23,7 +23,7 @@ nn = mm.ml.nn.NeuralNetwork([
     mm.ml.nn.layers.FeedForwardLayer(
         p[i], p[i+1],
         # relu layers, but last layer is sigmoid
-        mm.ml.nn.activations.relu if i < len(p) - 2 else
+        mm.ml.nn.activations.relu if i < len(p) - 4 else
         mm.ml.nn.activations.sigmoid
     )
     for i in range(0, len(p) - 2, 2)
