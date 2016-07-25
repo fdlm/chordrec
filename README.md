@@ -75,7 +75,7 @@ seed, the results might differ slightly from the ones in the papers.
    compared in the paper
 
    F. Korzeniowski and G. Widmer. ["Feature Learning for Chord Recognition: The
-   Deep Chroma Extractor"](http://www.cp.jku.at/research/papers/Korzeniowski_ISMIR_2016.pdf). In *Proceedings of the 17th International Society
+   Deep Chroma Extractor"](https://drive.google.com/open?id=0B0gBhdh1fIPKZUwtdnJpeDBjdlk). In *Proceedings of the 17th International Society
    for Music Information Retrieval Conference (ISMIR 2016)*,  New York, USA.
 
    See [here](http://fdlm.github.io/post/deepchroma) for more
@@ -89,9 +89,9 @@ seed, the results might differ slightly from the ones in the papers.
    system presented in the following paper:
 
    F. Korzeniowski and G. Widmer. ["A Fully Convolutional Deep Auditory Model
-   for Musical Chord Recognition"](http://www.cp.jku.at/research/papers/Korzeniowski_MLSP_2016.pdf)
+   for Musical Chord Recognition"](https://drive.google.com/open?id=0B0gBhdh1fIPKNXE5Z3VpQ2pjcE0)
    In *Proceedings of the IEEE International Workshop on Machine Learning for
    Signal Processing (MLSP 2016)*, Salerno, Italy, 2016.
 
-   See [here](http://fdlm.github.io/post/mlsp2016) for more
+   See [here](http://fdlm.github.io/post/auditorymodel) for more
    information on the model and the necessary data.
