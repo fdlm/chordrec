@@ -13,7 +13,7 @@ Additionally, the following libraries are required:
  - [nn](https://github.com/fdlm/nn)
  - [Spaghetti](https://github.com/fdlm/Spaghetti)
  - [madmom](https://github.com/CPJKU/madmom)*
- - [librosa](https://github.com/librosa/librosa)*
+ - [librosa](https://github.com/librosa/librosa) (version 0.4.1)*
  - [mir_eval](https://github.com/craffel/mir_eval)*
  - [pyyaml](https://bitbucket.org/xi/pyyaml)*
  - [sacred](https://github.com/IDSIA/sacred)*
